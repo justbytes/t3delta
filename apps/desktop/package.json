@@ -1,0 +1,33 @@
+{
+  "name": "@t3delta/desktop",
+  "version": "0.0.20",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "bun run --parallel dev:bundle dev:electron",
+    "dev:bundle": "bun run --parallel dev:bundle:desktop dev:bundle:server",
+    "dev:bundle:desktop": "tsdown --watch",
+    "dev:bundle:server": "cd ../server && bun run build:bundle -- --watch",
+    "dev:electron": "node scripts/dev-electron.mjs",
+    "build": "tsdown",
+    "start": "node scripts/start-electron.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "smoke-test": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "electron": "40.6.0",
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "@t3delta/contracts": "workspace:*",
+    "@t3delta/shared": "workspace:*",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "productName": "t3delta"
+}
