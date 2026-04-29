@@ -1051,7 +1051,7 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
       ROOT_DIR,
       "assets",
       "dev",
-      "blueprint-macos-1024.png",
+      "t3delta-dev-macos-1024.png",
     );
     if (FS.existsSync(developmentDockIconPath)) {
       return developmentDockIconPath;
