@@ -19,7 +19,7 @@ npx delta
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/bytes/t3delta/releases), or from your favorite package registry:
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/justbytes/t3delta/releases), or from your favorite package registry:
 
 #### Windows (`winget`)
 

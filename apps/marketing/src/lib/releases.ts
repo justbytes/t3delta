@@ -1,4 +1,4 @@
-const REPO = "bytes/t3delta";
+const REPO = "justbytes/t3delta";
 
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 
