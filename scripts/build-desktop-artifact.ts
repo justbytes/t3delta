@@ -567,9 +567,9 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdateServerPort: number | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: "com.t3tools.t3delta",
+    appId: "com.bytes.t3delta",
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: "T3-Delta-${version}-${arch}.${ext}",
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -784,7 +784,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     t3deltaCommitHash: commitHash,
     private: true,
     description: "T3 Delta desktop build",
-    author: "T3 Tools",
+    author: "Bytes",
     main: "apps/desktop/dist-electron/main.cjs",
     build: yield* createBuildConfig(
       options.platform,

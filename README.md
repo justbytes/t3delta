@@ -39,6 +39,10 @@ brew install --cask t3-delta
 yay -S t3delta-bin
 ```
 
+## Fork attribution
+
+T3 Delta is an independent hard fork of [T3 Code](https://github.com/pingdotgg/t3code). The project has been renamed, restructured, and will diverge with a separate product direction. Original upstream code remains under its original MIT license; new T3 Delta changes are maintained by Bytes.
+
 ## Some notes
 
 We are very very early in this project. Expect bugs.

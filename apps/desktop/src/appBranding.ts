@@ -2,7 +2,7 @@ import type { DesktopAppBranding, DesktopAppStageLabel } from "@t3delta/contract
 
 import { isNightlyDesktopVersion } from "./updateChannels.ts";
 
-const APP_BASE_NAME = "t3delta";
+const APP_BASE_NAME = "T3 Delta";
 
 export function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
