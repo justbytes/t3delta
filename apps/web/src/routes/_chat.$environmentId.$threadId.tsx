@@ -1,17 +1,21 @@
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import {
-  Suspense,
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-} from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
+import {
+  resolveDefaultInlineSidecarWidthPx,
+  resolveInitialInlineSidecarWidthPx,
+  resolveMaxInlineSidecarWidthPx,
+  WorkspaceInlineSidecar,
+  WORKSPACE_SIDECAR_DESKTOP_SHEET_MEDIA_QUERY,
+  WORKSPACE_SIDECAR_INLINE_EXPLORER_AUTO_CLOSE_WIDTH,
+  WORKSPACE_SIDECAR_INLINE_EXPLORER_MIN_WIDTH,
+  WORKSPACE_SIDECAR_INLINE_INSET_CSS_VAR,
+  WORKSPACE_SIDECAR_INLINE_MIN_WIDTH,
+  WORKSPACE_SIDECAR_INLINE_WIDTH_STORAGE_KEY,
+} from "../components/WorkspaceInlineSidecar";
 import {
   WorkspaceSidecarHeaderSkeleton,
   WorkspaceSidecarLoadingState,
@@ -32,55 +36,10 @@ import { selectEnvironmentState, selectThreadExistsByRef, useStore } from "../st
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteRef, buildThreadRouteParams } from "../threadRoutes";
 import { RightPanelSheet } from "../components/RightPanelSheet";
-import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
+import { SidebarInset } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const ProjectExplorerPanel = lazy(() => import("../components/ProjectExplorerPanel"));
-const WORKSPACE_SIDECAR_INLINE_WIDTH_STORAGE_KEY = "chat_workspace_sidecar_width";
-const WORKSPACE_SIDECAR_INLINE_INSET_CSS_VAR = "--chat-workspace-sidecar-inset";
-const WORKSPACE_SIDECAR_INLINE_DEFAULT_MIN_WIDTH = 28 * 16;
-const WORKSPACE_SIDECAR_INLINE_DEFAULT_MAX_WIDTH = 44 * 16;
-const WORKSPACE_SIDECAR_INLINE_MIN_WIDTH = 26 * 16;
-const WORKSPACE_SIDECAR_INLINE_EXPLORER_MIN_WIDTH = 0;
-const WORKSPACE_SIDECAR_INLINE_EXPLORER_AUTO_CLOSE_WIDTH = 12 * 16;
-const WORKSPACE_SIDECAR_INLINE_MIN_CONTENT_WIDTH = 32 * 16;
-const WORKSPACE_SIDECAR_DESKTOP_SHEET_MEDIA_QUERY = "(max-width: 920px)";
-const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
-
-function resolveDefaultInlineSidecarWidthPx() {
-  if (typeof window === "undefined") {
-    return WORKSPACE_SIDECAR_INLINE_DEFAULT_MAX_WIDTH;
-  }
-
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-  return Math.min(
-    WORKSPACE_SIDECAR_INLINE_DEFAULT_MAX_WIDTH,
-    Math.max(WORKSPACE_SIDECAR_INLINE_DEFAULT_MIN_WIDTH, Math.round(viewportWidth * 0.48)),
-  );
-}
-
-function resolveInitialInlineSidecarWidthPx() {
-  if (typeof window === "undefined") {
-    return resolveDefaultInlineSidecarWidthPx();
-  }
-
-  const storedWidth = Number.parseFloat(
-    window.localStorage.getItem(WORKSPACE_SIDECAR_INLINE_WIDTH_STORAGE_KEY) ?? "",
-  );
-  if (Number.isFinite(storedWidth)) {
-    if (storedWidth <= WORKSPACE_SIDECAR_INLINE_EXPLORER_AUTO_CLOSE_WIDTH) {
-      const fallbackWidth = resolveDefaultInlineSidecarWidthPx();
-      window.localStorage.setItem(
-        WORKSPACE_SIDECAR_INLINE_WIDTH_STORAGE_KEY,
-        String(fallbackWidth),
-      );
-      return fallbackWidth;
-    }
-    return Math.max(WORKSPACE_SIDECAR_INLINE_MIN_WIDTH, storedWidth);
-  }
-
-  return resolveDefaultInlineSidecarWidthPx();
-}
 
 const SidecarLoadingFallback = (props: {
   mode: WorkspaceSidecarLayoutMode;
@@ -151,138 +110,6 @@ const LazyRightPanel = (props: {
     <LazyProjectExplorerPanel mode={props.mode} onSelectSidecar={props.onSelectSidecar} />
   ) : (
     <LazyDiffPanel mode={props.mode} onSelectSidecar={props.onSelectSidecar} />
-  );
-};
-
-const RightPanelInlineSidebar = (props: {
-  sidecarOpen: boolean;
-  onCloseSidecar: () => void;
-  onOpenSidecar: () => void;
-  renderSidecarContent: boolean;
-  sidecar: WorkspaceSidecarMode;
-  width: number;
-  onWidthChange: (width: number) => void;
-  onWidthChangeEnd: (width: number) => void;
-  onSelectSidecar: (sidecar: WorkspaceSidecarMode) => void;
-}) => {
-  const {
-    sidecarOpen,
-    onCloseSidecar,
-    onOpenSidecar,
-    renderSidecarContent,
-    sidecar,
-    width,
-    onWidthChange,
-    onWidthChangeEnd,
-    onSelectSidecar,
-  } = props;
-  const onOpenChange = useCallback(
-    (open: boolean) => {
-      if (open) {
-        onOpenSidecar();
-        return;
-      }
-      onCloseSidecar();
-    },
-    [onCloseSidecar, onOpenSidecar],
-  );
-  const shouldAcceptInlineSidebarWidth = useCallback(
-    ({ nextWidth, wrapper }: { nextWidth: number; wrapper: HTMLElement }) => {
-      const threadShell = document.querySelector<HTMLElement>("[data-chat-thread-shell='true']");
-      if (threadShell) {
-        const threadShellWidth = threadShell.getBoundingClientRect().width;
-        if (threadShellWidth - nextWidth < WORKSPACE_SIDECAR_INLINE_MIN_CONTENT_WIDTH) {
-          return false;
-        }
-      }
-
-      const composerForm = document.querySelector<HTMLElement>("[data-chat-composer-form='true']");
-      if (!composerForm) {
-        return true;
-      }
-      const composerViewport = composerForm.parentElement;
-      if (!composerViewport) {
-        return true;
-      }
-      const previousSidebarWidth = wrapper.style.getPropertyValue("--sidebar-width");
-      wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-
-      const viewportStyle = window.getComputedStyle(composerViewport);
-      const viewportPaddingLeft = Number.parseFloat(viewportStyle.paddingLeft) || 0;
-      const viewportPaddingRight = Number.parseFloat(viewportStyle.paddingRight) || 0;
-      const viewportContentWidth = Math.max(
-        0,
-        composerViewport.clientWidth - viewportPaddingLeft - viewportPaddingRight,
-      );
-      const formRect = composerForm.getBoundingClientRect();
-      const composerFooter = composerForm.querySelector<HTMLElement>(
-        "[data-chat-composer-footer='true']",
-      );
-      const composerRightActions = composerForm.querySelector<HTMLElement>(
-        "[data-chat-composer-actions='right']",
-      );
-      const composerRightActionsWidth = composerRightActions?.getBoundingClientRect().width ?? 0;
-      const composerFooterGap = composerFooter
-        ? Number.parseFloat(window.getComputedStyle(composerFooter).columnGap) ||
-          Number.parseFloat(window.getComputedStyle(composerFooter).gap) ||
-          0
-        : 0;
-      const minimumComposerWidth =
-        COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX + composerRightActionsWidth + composerFooterGap;
-      const hasComposerOverflow = composerForm.scrollWidth > composerForm.clientWidth + 0.5;
-      const overflowsViewport = formRect.width > viewportContentWidth + 0.5;
-      const violatesMinimumComposerWidth = composerForm.clientWidth + 0.5 < minimumComposerWidth;
-
-      if (previousSidebarWidth.length > 0) {
-        wrapper.style.setProperty("--sidebar-width", previousSidebarWidth);
-      } else {
-        wrapper.style.removeProperty("--sidebar-width");
-      }
-
-      const accepted = !hasComposerOverflow && !overflowsViewport && !violatesMinimumComposerWidth;
-      return accepted;
-    },
-    [],
-  );
-
-  return (
-    <SidebarProvider
-      defaultOpen={false}
-      open={sidecarOpen}
-      onOpenChange={onOpenChange}
-      className="pointer-events-none absolute inset-y-0 right-0 z-30 w-auto min-h-0 bg-transparent"
-      style={{ "--sidebar-width": `${width}px` } as CSSProperties}
-    >
-      <Sidebar
-        side="right"
-        collapsible="offcanvas"
-        containerPosition="absolute"
-        className="pointer-events-auto top-[52px] h-[calc(100dvh-52px)] border-l border-border bg-card text-foreground"
-        resizable={{
-          minWidth:
-            sidecar === "explorer"
-              ? WORKSPACE_SIDECAR_INLINE_EXPLORER_MIN_WIDTH
-              : WORKSPACE_SIDECAR_INLINE_MIN_WIDTH,
-          onResize: onWidthChange,
-          onResizeEnd: (finalWidth) => {
-            onWidthChangeEnd(finalWidth);
-            if (
-              sidecar === "explorer" &&
-              finalWidth <= WORKSPACE_SIDECAR_INLINE_EXPLORER_AUTO_CLOSE_WIDTH
-            ) {
-              onCloseSidecar();
-            }
-          },
-          shouldAcceptWidth: shouldAcceptInlineSidebarWidth,
-          storageKey: WORKSPACE_SIDECAR_INLINE_WIDTH_STORAGE_KEY,
-        }}
-      >
-        {renderSidecarContent ? (
-          <LazyRightPanel mode="sidebar" sidecar={sidecar} onSelectSidecar={onSelectSidecar} />
-        ) : null}
-        <SidebarRail allowCollapsedInteractions />
-      </Sidebar>
-    </SidebarProvider>
   );
 };
 
@@ -443,6 +270,34 @@ function ChatThreadRouteView() {
   }, [inlineSidecarWidth, sidecarOpen, shouldUseSidecarSheet]);
 
   useEffect(() => {
+    if (!sidecarOpen || shouldUseSidecarSheet) {
+      return;
+    }
+
+    const clampInlineSidecarWidth = () => {
+      const maxWidth = resolveMaxInlineSidecarWidthPx();
+      setInlineSidecarWidth((currentWidth) => {
+        const nextWidth = Math.min(
+          maxWidth,
+          Math.max(WORKSPACE_SIDECAR_INLINE_MIN_WIDTH, currentWidth),
+        );
+        if (nextWidth === currentWidth) {
+          return currentWidth;
+        }
+        applyInlineSidecarInset(nextWidth);
+        window.localStorage.setItem(WORKSPACE_SIDECAR_INLINE_WIDTH_STORAGE_KEY, String(nextWidth));
+        return nextWidth;
+      });
+    };
+
+    clampInlineSidecarWidth();
+    window.addEventListener("resize", clampInlineSidecarWidth);
+    return () => {
+      window.removeEventListener("resize", clampInlineSidecarWidth);
+    };
+  }, [applyInlineSidecarInset, sidecarOpen, shouldUseSidecarSheet]);
+
+  useEffect(() => {
     if (!threadRef || !serverThreadStarted || !draftThread?.promotedTo) {
       return;
     }
@@ -475,17 +330,23 @@ function ChatThreadRouteView() {
             {...(inlineSidecarInset ? { workspaceSidecarInset: inlineSidecarInset } : {})}
           />
         </SidebarInset>
-        <RightPanelInlineSidebar
+        <WorkspaceInlineSidecar
+          minWidth={
+            sidecarMode === "explorer"
+              ? WORKSPACE_SIDECAR_INLINE_EXPLORER_MIN_WIDTH
+              : WORKSPACE_SIDECAR_INLINE_MIN_WIDTH
+          }
           sidecarOpen={sidecarOpen}
           onCloseSidecar={closeSidecar}
           onOpenSidecar={sidecarMode === "explorer" ? openExplorer : openDiff}
           renderSidecarContent={shouldRenderSidecarContent}
-          sidecar={sidecarMode}
           width={inlineSidecarWidth}
           onWidthChange={applyInlineSidecarInset}
           onWidthChangeEnd={setInlineSidecarWidth}
-          onSelectSidecar={selectSidecar}
-        />
+          {...(sidecarMode === "explorer" ? { onCollapsedByResize: closeSidecar } : {})}
+        >
+          <LazyRightPanel mode="sidebar" sidecar={sidecarMode} onSelectSidecar={selectSidecar} />
+        </WorkspaceInlineSidecar>
       </div>
     );
   }

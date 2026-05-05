@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
+import { PositiveInt, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import {
   ClaudeModelOptions,
   CodexModelOptions,
@@ -85,6 +85,27 @@ export const EditorLanguageServerPreference = Schema.Struct({
   serverId: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 });
 export type EditorLanguageServerPreference = typeof EditorLanguageServerPreference.Type;
+
+export const CodeRuleSeverity = Schema.Literals(["off", "warning", "error"]);
+export type CodeRuleSeverity = typeof CodeRuleSeverity.Type;
+
+export const JavaScriptTypeScriptCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  explicitAny: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type JavaScriptTypeScriptCodeRules = typeof JavaScriptTypeScriptCodeRules.Type;
+
+export const CodeRulesSettings = Schema.Struct({
+  javascriptTypeScript: JavaScriptTypeScriptCodeRules.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+});
+export type CodeRulesSettings = typeof CodeRulesSettings.Type;
 
 export const DEFAULT_EDITOR_LANGUAGE_SERVER_PREFERENCES: Record<
   string,
@@ -283,6 +304,7 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  codeRules: CodeRulesSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -434,10 +456,23 @@ const CssLanguageServerSettingsPatch = Schema.Struct({
   launchArgs: Schema.optionalKey(Schema.String),
 });
 
+const JavaScriptTypeScriptCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  explicitAny: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const CodeRulesSettingsPatch = Schema.Struct({
+  javascriptTypeScript: Schema.optionalKey(JavaScriptTypeScriptCodeRulesPatch),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   addProjectBaseDirectory: Schema.optionalKey(Schema.String),
+  codeRules: Schema.optionalKey(CodeRulesSettingsPatch),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   observability: Schema.optionalKey(
     Schema.Struct({

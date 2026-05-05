@@ -290,7 +290,7 @@ try {
           fi
 
           found_windows_manifest=true
-          node ${JSON.stringify(resolve(repoRoot, "scripts/merge-update-manifests.ts"))} --platform win \
+          bun ${JSON.stringify(resolve(repoRoot, "scripts/merge-update-manifests.ts"))} --platform win \
             "$arm64_manifest" \
             "$x64_manifest" \
             "$output_manifest"

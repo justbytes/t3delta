@@ -200,7 +200,10 @@ const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
   WorkspaceEntriesLayerLive,
-  WorkspaceDiagnosticsLive.pipe(Layer.provide(WorkspacePathsLive)),
+  WorkspaceDiagnosticsLive.pipe(
+    Layer.provide(WorkspacePathsLive),
+    Layer.provide(ServerSettingsLive),
+  ),
   WorkspaceLanguageServersLive.pipe(
     Layer.provide(WorkspacePathsLive),
     Layer.provide(ServerSettingsLive),

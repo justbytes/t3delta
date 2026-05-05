@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { getVscodeIconUrlForEntry } from "./vscode-icons";
+import { getVscodeIconUrlForEntry, resolveEditorLanguageForPath } from "./vscode-icons";
 
 describe("getVscodeIconUrlForEntry", () => {
   it("uses exact filename matches from the vscode-icons manifest", () => {
@@ -48,5 +48,20 @@ describe("getVscodeIconUrlForEntry", () => {
 
     assert.isTrue(fileUrl.endsWith("/default_file.svg"));
     assert.isTrue(folderUrl.endsWith("/default_folder.svg"));
+  });
+
+  it("returns plaintext when the resolved editor language is disabled", () => {
+    assert.equal(
+      resolveEditorLanguageForPath("src/app.ts", {
+        enabledLanguageIds: ["javascript"],
+      }),
+      "plaintext",
+    );
+    assert.equal(
+      resolveEditorLanguageForPath("Dockerfile", {
+        enabledLanguageIds: ["typescript"],
+      }),
+      "plaintext",
+    );
   });
 });

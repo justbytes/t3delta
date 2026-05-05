@@ -5,9 +5,16 @@ import NodePath from "node:path";
 import type {
   ProjectDiagnostic,
   ProjectDiagnosticsToolRun,
-  ProjectReadDiagnosticsInput,
+  ServerSettings,
 } from "@t3delta/contracts";
+import {
+  BUILT_IN_JS_TS_RULE_CONFIG_FILES,
+  evaluateBuiltInJavaScriptTypeScriptCodeRules,
+  hasEnabledBuiltInJavaScriptTypeScriptCodeRules,
+  isBuiltInJavaScriptTypeScriptRuleTarget,
+} from "@t3delta/shared/projectCodeRules";
 import { runProcess } from "../../processRunner.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   WorkspaceDiagnostics,
   WorkspaceDiagnosticsError,
@@ -36,12 +43,19 @@ const TYPESCRIPT_LIKE_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs", "ts", "ts
 const PYTHON_EXTENSIONS = new Set(["py"]);
 const RUST_EXTENSIONS = new Set(["rs"]);
 const SOLIDITY_EXTENSIONS = new Set(["sol"]);
-
+const ESLINT_CONFIG_FILES = [
+  "eslint.config.js",
+  "eslint.config.mjs",
+  "eslint.config.cjs",
+  "eslint.config.ts",
+  ".eslintrc",
+  ".eslintrc.js",
+  ".eslintrc.cjs",
+  ".eslintrc.json",
+  ".eslintrc.yml",
+  ".eslintrc.yaml",
+] as const;
 const globalCommandCache = new Map<string, Promise<string | null>>();
-
-function toPosixRelativePath(fromRoot: string, absolutePath: string): string {
-  return NodePath.relative(fromRoot, absolutePath).split(NodePath.sep).join("/");
-}
 
 function normalizeAbsolutePath(candidatePath: string, cwd: string): string {
   return NodePath.resolve(
@@ -196,6 +210,62 @@ function createDiagnostic(input: {
     ...(input.endLine && input.endLine > 0 ? { endLine: Math.trunc(input.endLine) } : {}),
     ...(input.endColumn && input.endColumn > 0 ? { endColumn: Math.trunc(input.endColumn) } : {}),
     ...(input.code ? { code: input.code.trim() } : {}),
+  };
+}
+
+async function hasJsTsRuleConfig(context: DiagnosticsContext): Promise<boolean> {
+  return (
+    (await findUpwards(context.targetDirectory, context.cwd, BUILT_IN_JS_TS_RULE_CONFIG_FILES)) !==
+    null
+  );
+}
+
+async function runBuiltInJavaScriptTypeScriptCodeRules(
+  context: DiagnosticsContext,
+  settings: ServerSettings,
+): Promise<DiagnosticsAdapterOutcome> {
+  if (!isBuiltInJavaScriptTypeScriptRuleTarget(context.targetRelativePath)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun(
+        "t3delta-rules",
+        "built-in JS/TS code rules",
+        "notApplicable",
+        "File is not JS or TS.",
+      ),
+    };
+  }
+
+  if (await hasJsTsRuleConfig(context)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun(
+        "t3delta-rules",
+        "built-in JS/TS code rules",
+        "notApplicable",
+        "Project ESLint config found.",
+      ),
+    };
+  }
+
+  const rules = settings.codeRules.javascriptTypeScript;
+  if (!hasEnabledBuiltInJavaScriptTypeScriptCodeRules(rules)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun("t3delta-rules", "built-in JS/TS code rules", "notApplicable"),
+    };
+  }
+
+  const sourceText = await fs.promises.readFile(context.targetAbsolutePath, "utf8");
+  const diagnostics = evaluateBuiltInJavaScriptTypeScriptCodeRules({
+    relativePath: context.targetRelativePath,
+    sourceText,
+    rules,
+  });
+
+  return {
+    diagnostics,
+    run: makeToolRun("t3delta-rules", "built-in JS/TS code rules", "ran"),
   };
 }
 
@@ -479,18 +549,7 @@ async function runEslintDiagnostics(
     };
   }
 
-  const configPath = await findUpwards(context.targetDirectory, context.cwd, [
-    "eslint.config.js",
-    "eslint.config.mjs",
-    "eslint.config.cjs",
-    "eslint.config.ts",
-    ".eslintrc",
-    ".eslintrc.js",
-    ".eslintrc.cjs",
-    ".eslintrc.json",
-    ".eslintrc.yml",
-    ".eslintrc.yaml",
-  ]);
+  const configPath = await findUpwards(context.targetDirectory, context.cwd, ESLINT_CONFIG_FILES);
   if (!configPath) {
     return {
       diagnostics: [],
@@ -651,8 +710,10 @@ async function runSolidityDiagnostics(
 
 async function runAdapters(
   context: DiagnosticsContext,
+  settings: ServerSettings,
 ): Promise<readonly DiagnosticsAdapterOutcome[]> {
   return Promise.all([
+    runBuiltInJavaScriptTypeScriptCodeRules(context, settings),
     runTypeScriptDiagnostics(context),
     runEslintDiagnostics(context),
     runRustDiagnostics(context),
@@ -663,6 +724,7 @@ async function runAdapters(
 
 export const makeWorkspaceDiagnostics = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths;
+  const serverSettings = yield* ServerSettingsService;
 
   const readDiagnostics: WorkspaceDiagnosticsShape["readDiagnostics"] = Effect.fn(
     "WorkspaceDiagnostics.readDiagnostics",
@@ -707,7 +769,19 @@ export const makeWorkspaceDiagnostics = Effect.gen(function* () {
       targetExtension: NodePath.extname(target.absolutePath).replace(/^\./, "").toLowerCase(),
     };
 
-    const outcomes = yield* Effect.tryPromise(() => runAdapters(context)).pipe(
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new WorkspaceDiagnosticsError({
+            cwd: input.cwd,
+            relativePath: input.relativePath,
+            operation: "workspaceDiagnostics.getSettings",
+            detail: cause.message,
+            cause,
+          }),
+      ),
+    );
+    const outcomes = yield* Effect.tryPromise(() => runAdapters(context, settings)).pipe(
       Effect.mapError(
         (cause) =>
           new WorkspaceDiagnosticsError({

@@ -50,6 +50,7 @@ export function SettingsRow({
   resetAction,
   control,
   children,
+  layout = "inline",
 }: {
   title: ReactNode;
   description: string;
@@ -57,7 +58,10 @@ export function SettingsRow({
   resetAction?: ReactNode;
   control?: ReactNode;
   children?: ReactNode;
+  layout?: "inline" | "stacked";
 }) {
+  const isStacked = layout === "stacked";
+
   return (
     <div
       className={cn(
@@ -65,7 +69,12 @@ export function SettingsRow({
         children ? "pt-4 pb-0" : "py-4",
       )}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div
+        className={cn(
+          "flex flex-col gap-3",
+          !isStacked && "sm:flex-row sm:items-center sm:justify-between",
+        )}
+      >
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 items-center gap-1.5">
             <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
@@ -79,7 +88,12 @@ export function SettingsRow({
           {status ? <div className="pt-0.5 text-[11px] text-muted-foreground">{status}</div> : null}
         </div>
         {control ? (
-          <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+          <div
+            className={cn(
+              "flex w-full shrink-0 items-center gap-2",
+              isStacked ? "justify-stretch" : "sm:w-auto sm:justify-end",
+            )}
+          >
             {control}
           </div>
         ) : null}

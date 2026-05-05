@@ -52,6 +52,10 @@
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
     },
+    "./projectCodeRules": {
+      "types": "./src/projectCodeRules.ts",
+      "import": "./src/projectCodeRules.ts"
+    },
     "./searchRanking": {
       "types": "./src/searchRanking.ts",
       "import": "./src/searchRanking.ts"

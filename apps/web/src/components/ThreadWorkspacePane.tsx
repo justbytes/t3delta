@@ -1,5 +1,5 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EnvironmentId, ProjectLanguageServerStreamEvent } from "@t3delta/contracts";
 import {
   AlertCircleIcon,
@@ -193,8 +193,8 @@ export function ThreadWorkspacePane(props: {
   onToggleTerminal: () => void;
   terminalOpen: boolean;
 }) {
-  const editorEnabledLanguageIds = useSettings((settings) => settings.editorEnabledLanguageIds);
   const editorCustomAssociations = useSettings((settings) => settings.editorCustomAssociations);
+  const editorEnabledLanguageIds = useSettings((settings) => settings.editorEnabledLanguageIds);
   const editorLanguageServerPreferences = useSettings(
     (settings) => settings.editorLanguageServerPreferences,
   );
@@ -228,6 +228,7 @@ export function ThreadWorkspacePane(props: {
     relativePath: null,
     serverId: null,
   });
+  const queryClient = useQueryClient();
   const activeEditorBuffer = useThreadEditorStore(
     useCallback(
       (state) =>
@@ -244,7 +245,9 @@ export function ThreadWorkspacePane(props: {
   const setSaving = useThreadEditorStore((state) => state.setSaving);
   const setSaveError = useThreadEditorStore((state) => state.setSaveError);
   const commitSavedDraft = useThreadEditorStore((state) => state.commitSavedDraft);
-  const setDiagnosticCounts = useThreadEditorStore((state) => state.setDiagnosticCounts);
+  const setEditorDiagnosticCounts = useThreadEditorStore(
+    (state) => state.setEditorDiagnosticCounts,
+  );
   const activeTextBuffer = activeEditorBuffer?.kind === "text" ? activeEditorBuffer : null;
   const activeImagePreviewBuffer = isImagePreviewBuffer(activeEditorBuffer)
     ? activeEditorBuffer
@@ -343,7 +346,7 @@ export function ThreadWorkspacePane(props: {
   const monacoDiagnosticsMode =
     activeLanguageServerId &&
     (textFileLanguage === "typescript" || textFileLanguage === "javascript")
-      ? "syntax"
+      ? "full"
       : enableMonacoEditorDiagnostics || enableProjectDiagnostics
         ? "full"
         : "syntax";
@@ -403,14 +406,23 @@ export function ThreadWorkspacePane(props: {
       return;
     }
 
+    const contentsToSave = monacoEditorRef.current?.getValue() ?? activeTextBuffer.draftContents;
+    if (contentsToSave !== activeTextBuffer.draftContents) {
+      updateDraft(props.threadKey, props.activeFilePath, contentsToSave);
+    }
+
     setSaving(props.threadKey, props.activeFilePath, true);
     try {
       await api.projects.writeFile({
         cwd: props.cwd,
         relativePath: props.activeFilePath,
-        contents: activeTextBuffer.draftContents,
+        contents: contentsToSave,
       });
       commitSavedDraft(props.threadKey, props.activeFilePath);
+      await queryClient.invalidateQueries({
+        queryKey: ["thread-workspace-file", props.environmentId, props.cwd, props.activeFilePath],
+        exact: true,
+      });
     } catch (error) {
       setSaveError(
         props.threadKey,
@@ -425,8 +437,10 @@ export function ThreadWorkspacePane(props: {
     props.cwd,
     props.environmentId,
     props.threadKey,
+    queryClient,
     setSaveError,
     setSaving,
+    updateDraft,
   ]);
   const saveCurrentFileRef = useRef(saveCurrentFile);
   useEffect(() => {
@@ -816,8 +830,12 @@ export function ThreadWorkspacePane(props: {
     if (!props.threadKey || !activeTextBuffer) {
       return;
     }
-    setDiagnosticCounts(props.threadKey, activeTextBuffer.relativePath, combinedDiagnosticCounts);
-  }, [activeTextBuffer, combinedDiagnosticCounts, props.threadKey, setDiagnosticCounts]);
+    setEditorDiagnosticCounts(
+      props.threadKey,
+      activeTextBuffer.relativePath,
+      combinedDiagnosticCounts,
+    );
+  }, [activeTextBuffer, combinedDiagnosticCounts, props.threadKey, setEditorDiagnosticCounts]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">

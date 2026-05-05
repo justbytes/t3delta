@@ -88,6 +88,7 @@ export const ChatHeader = memo(function ChatHeader({
   });
   const gitInsertions = gitStatusQuery.data?.workingTree.insertions ?? 0;
   const gitDeletions = gitStatusQuery.data?.workingTree.deletions ?? 0;
+  const hasWorkspacePath = openInCwd !== null;
 
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -132,7 +133,7 @@ export const ChatHeader = memo(function ChatHeader({
             onOpenEditor={onOpenCenterPaneEditor}
           />
         )}
-        {activeProjectName && (
+        {activeProjectName && isGitRepo && (
           <GitActionsControl
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
@@ -165,7 +166,7 @@ export const ChatHeader = memo(function ChatHeader({
         </Tooltip>
         <WorkspaceToolsControl
           canShowDiff={isGitRepo}
-          canShowExplorer={activeProjectName !== undefined}
+          canShowExplorer={hasWorkspacePath}
           currentMode={workspaceToolMode}
           workspaceToolOpen={workspaceToolOpen}
           diffToggleShortcutLabel={diffToggleShortcutLabel}

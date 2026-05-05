@@ -16,6 +16,9 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # Apple's squircle is more complex than a radius, but ~22% of the canvas is
 # visually close and fixes square Dock/App Store silhouettes.
 APPLE_ICON_CORNER_RADIUS_RATIO = 0.223
+# Full-bleed artwork reads oversized in the macOS Dock. Keep the Apple-style
+# rounded tile, but inset it enough to align with neighboring app icons.
+MACOS_ICON_ARTWORK_SCALE = 0.88
 
 
 def run(cmd: list[str]) -> None:
@@ -164,6 +167,48 @@ def resize_rounded(src: Path, out: Path, size: int) -> None:
     round_png_corners(out)
 
 
+def inset_png(path: Path, scale: float) -> None:
+    if not 0 < scale <= 1:
+        raise ValueError(f"Expected inset scale between 0 and 1, got {scale}")
+
+    width, height, rgba = _read_png_rgba(path)
+    if width != height:
+        raise ValueError(f"Expected square icon PNG, got {width}x{height}: {path}")
+
+    inner_size = max(1, round(width * scale))
+    if inner_size >= width:
+        return
+
+    inset = (width - inner_size) // 2
+    tmp_path = TMP_DIR / f"{path.stem}-inner{path.suffix}"
+    try:
+        sips_resize(path, tmp_path, inner_size)
+        inner_width, inner_height, inner_rgba = _read_png_rgba(tmp_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+    canvas = bytearray(width * height * 4)
+    for y in range(inner_height):
+        dest_y = y + inset
+        if dest_y >= height:
+            continue
+        for x in range(inner_width):
+            dest_x = x + inset
+            if dest_x >= width:
+                continue
+            src_index = (y * inner_width + x) * 4
+            dest_index = (dest_y * width + dest_x) * 4
+            canvas[dest_index : dest_index + 4] = inner_rgba[src_index : src_index + 4]
+
+    _write_png_rgba(path, width, height, canvas)
+
+
+def resize_macos_icon(src: Path, out: Path, size: int) -> None:
+    resize_rounded(src, out, size)
+    inset_png(out, MACOS_ICON_ARTWORK_SCALE)
+
+
 def make_ico(src: Path, out: Path, sizes: tuple[int, ...] = (16, 24, 32, 48, 64, 128, 256)) -> None:
     tmp = TMP_DIR
     if tmp.exists():
@@ -209,7 +254,7 @@ def make_icns(src: Path, out: Path) -> None:
         ("icon_512x512@2x.png", 1024),
     ]
     for name, size in mapping:
-        resize_rounded(src, tmp / name, size)
+        resize_macos_icon(src, tmp / name, size)
     out.parent.mkdir(parents=True, exist_ok=True)
     run(["iconutil", "-c", "icns", str(tmp), "-o", str(out)])
     shutil.rmtree(tmp)
@@ -218,7 +263,7 @@ def make_icns(src: Path, out: Path) -> None:
 def generate_set(src: Path, directory: str, prefix: str) -> None:
     target_dir = ROOT / "assets" / directory
     target_dir.mkdir(parents=True, exist_ok=True)
-    resize_rounded(src, target_dir / f"{prefix}-macos-1024.png", 1024)
+    resize_macos_icon(src, target_dir / f"{prefix}-macos-1024.png", 1024)
     resize_rounded(src, target_dir / f"{prefix}-universal-1024.png", 1024)
     resize_rounded(src, target_dir / f"{prefix}-ios-1024.png", 1024)
     resize_rounded(src, target_dir / f"{prefix}-web-favicon-16x16.png", 16)
@@ -243,10 +288,13 @@ def main() -> None:
         ("apps/marketing/public/favicon-32x32.png", 32),
         ("apps/web/public/apple-touch-icon.png", 180),
         ("apps/marketing/public/apple-touch-icon.png", 180),
+    ]:
+        resize_rounded(PROD_SRC, ROOT / relative, size)
+    for relative, size in [
         ("apps/marketing/public/icon.png", 1024),
         ("apps/desktop/resources/icon.png", 1024),
     ]:
-        resize_rounded(PROD_SRC, ROOT / relative, size)
+        resize_macos_icon(PROD_SRC, ROOT / relative, size)
     make_ico(PROD_SRC, ROOT / "apps/web/public/favicon.ico")
     make_ico(PROD_SRC, ROOT / "apps/marketing/public/favicon.ico")
     make_ico(PROD_SRC, ROOT / "apps/desktop/resources/icon.ico")

@@ -1,11 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { scopedThreadKey } from "@t3delta/client-runtime";
+import { scopedThreadKey, scopeThreadRef } from "@t3delta/client-runtime";
 import type {
   ContextMenuItem,
   EnvironmentId,
   ProjectEntry,
   ProjectListDirectoryResult,
+  ProjectId,
+  ThreadId,
 } from "@t3delta/contracts";
 import { AlertCircleIcon, ChevronRightIcon, FolderOpenIcon, Loader2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -17,9 +19,10 @@ import { readLocalApi } from "../localApi";
 import { selectProjectByRef, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { useThreadEditorStore } from "../threadEditorStore";
-import { resolveThreadRouteRef } from "../threadRoutes";
+import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
 import { basenameOfPath } from "../vscode-icons";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 import { Button } from "./ui/button";
 import {
@@ -44,6 +47,30 @@ const PROJECT_EXPLORER_QUERY_PREFIX = "project-explorer-directory";
 const EMPTY_DIAGNOSTIC_COUNTS_BY_PATH: Readonly<
   Record<string, { errors: number; warnings: number }>
 > = {};
+
+function mergeDiagnosticCountsByPath(
+  projectRuleCounts: Readonly<Record<string, { errors: number; warnings: number }>>,
+  editorCounts: Readonly<Record<string, { errors: number; warnings: number }>>,
+): Readonly<Record<string, { errors: number; warnings: number }>> {
+  if (projectRuleCounts === EMPTY_DIAGNOSTIC_COUNTS_BY_PATH) {
+    return editorCounts;
+  }
+  if (editorCounts === EMPTY_DIAGNOSTIC_COUNTS_BY_PATH) {
+    return projectRuleCounts;
+  }
+
+  const merged = { ...projectRuleCounts };
+  for (const [filePath, counts] of Object.entries(editorCounts)) {
+    const current = merged[filePath];
+    merged[filePath] = current
+      ? {
+          errors: current.errors + counts.errors,
+          warnings: current.warnings + counts.warnings,
+        }
+      : counts;
+  }
+  return merged;
+}
 
 function projectExplorerDirectoryQueryKey(
   environmentId: EnvironmentId | null,
@@ -372,26 +399,62 @@ function ExplorerFileNode(
 export default function ProjectExplorerPanel(props: {
   mode: WorkspaceSidecarLayoutMode;
   onSelectSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  source?: {
+    environmentId: EnvironmentId;
+    threadId: ThreadId;
+    projectId: ProjectId;
+    worktreePath: string | null;
+  };
 }) {
   const queryClient = useQueryClient();
-  const routeThreadRef = useParams({
+  const routeTarget = useParams({
     strict: false,
-    select: (params) => resolveThreadRouteRef(params),
+    select: (params) => resolveThreadRouteTarget(params),
   });
+  const routeThreadRef = props.source
+    ? null
+    : routeTarget?.kind === "server"
+      ? routeTarget.threadRef
+      : null;
+  const draftSession = useComposerDraftStore((store) =>
+    !props.source && routeTarget?.kind === "draft"
+      ? store.getDraftSession(routeTarget.draftId)
+      : null,
+  );
+  const activeThreadRef =
+    routeThreadRef ??
+    (props.source
+      ? scopeThreadRef(props.source.environmentId, props.source.threadId)
+      : draftSession
+        ? scopeThreadRef(draftSession.environmentId, draftSession.threadId)
+        : null);
   const activeThread = useStore(
     useMemo(() => createThreadSelectorByRef(routeThreadRef), [routeThreadRef]),
   );
-  const activeProjectId = activeThread?.projectId ?? null;
-  const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const activeProjectId =
+    activeThread?.projectId ?? props.source?.projectId ?? draftSession?.projectId ?? null;
+  const activeEnvironmentId =
+    activeThread?.environmentId ??
+    props.source?.environmentId ??
+    draftSession?.environmentId ??
+    null;
+  const activeThreadId =
+    activeThread?.id ?? props.source?.threadId ?? draftSession?.threadId ?? null;
+  const routeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const activeProject = useStore((store) =>
-    activeThread && activeProjectId
+    activeEnvironmentId && activeProjectId
       ? selectProjectByRef(store, {
-          environmentId: activeThread.environmentId,
+          environmentId: activeEnvironmentId,
           projectId: activeProjectId,
         })
       : undefined,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const activeCwd =
+    activeThread?.worktreePath ??
+    props.source?.worktreePath ??
+    draftSession?.worktreePath ??
+    activeProject?.cwd ??
+    null;
   const { resolvedTheme } = useTheme();
   const explorerTheme = resolvedTheme === "light" ? "light" : "dark";
   const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(() => new Set());
@@ -401,23 +464,48 @@ export default function ProjectExplorerPanel(props: {
   const threadWorkspace = useUiStateStore(
     useCallback(
       (state) =>
-        activeThread && routeThreadKey
-          ? (state.threadWorkspaceById[routeThreadKey] ??
-            state.threadWorkspaceById[activeThread.id])
+        activeThreadId && routeThreadKey
+          ? (state.threadWorkspaceById[routeThreadKey] ?? state.threadWorkspaceById[activeThreadId])
           : undefined,
-      [activeThread, routeThreadKey],
+      [activeThreadId, routeThreadKey],
     ),
   );
-  const diagnosticCountsByPath = useThreadEditorStore(
+  const projectRuleDiagnosticCountsByPath = useThreadEditorStore(
     useCallback(
-      (state) =>
-        activeThread && routeThreadKey
-          ? (state.diagnosticsByThreadKey[routeThreadKey] ??
-            state.diagnosticsByThreadKey[activeThread.id] ??
-            EMPTY_DIAGNOSTIC_COUNTS_BY_PATH)
-          : EMPTY_DIAGNOSTIC_COUNTS_BY_PATH,
-      [activeThread, routeThreadKey],
+      (state) => {
+        if (!activeThreadId || !routeThreadKey) {
+          return EMPTY_DIAGNOSTIC_COUNTS_BY_PATH;
+        }
+
+        return (
+          state.projectRuleDiagnosticCountsByThreadKey[routeThreadKey] ??
+          state.projectRuleDiagnosticCountsByThreadKey[activeThreadId] ??
+          EMPTY_DIAGNOSTIC_COUNTS_BY_PATH
+        );
+      },
+      [activeThreadId, routeThreadKey],
     ),
+  );
+  const editorDiagnosticCountsByPath = useThreadEditorStore(
+    useCallback(
+      (state) => {
+        if (!activeThreadId || !routeThreadKey) {
+          return EMPTY_DIAGNOSTIC_COUNTS_BY_PATH;
+        }
+
+        return (
+          state.editorDiagnosticCountsByThreadKey[routeThreadKey] ??
+          state.editorDiagnosticCountsByThreadKey[activeThreadId] ??
+          EMPTY_DIAGNOSTIC_COUNTS_BY_PATH
+        );
+      },
+      [activeThreadId, routeThreadKey],
+    ),
+  );
+  const diagnosticCountsByPath = useMemo(
+    () =>
+      mergeDiagnosticCountsByPath(projectRuleDiagnosticCountsByPath, editorDiagnosticCountsByPath),
+    [editorDiagnosticCountsByPath, projectRuleDiagnosticCountsByPath],
   );
   const openThreadWorkspaceFile = useUiStateStore((state) => state.openThreadWorkspaceFile);
   const closeThreadWorkspaceFile = useUiStateStore((state) => state.closeThreadWorkspaceFile);
@@ -431,27 +519,25 @@ export default function ProjectExplorerPanel(props: {
 
   useEffect(() => {
     setExpandedDirectories(new Set());
-  }, [activeCwd, activeThread?.environmentId]);
+  }, [activeCwd, activeEnvironmentId]);
 
   const fetchDirectory = useCallback(
     async (directoryPath: string): Promise<ProjectListDirectoryResult> => {
-      if (!activeThread?.environmentId || !activeCwd) {
+      if (!activeEnvironmentId || !activeCwd) {
         throw new Error("File explorer is unavailable.");
       }
-      return requireEnvironmentConnection(activeThread.environmentId).client.projects.listDirectory(
-        {
-          cwd: activeCwd,
-          ...(directoryPath.length > 0 ? { relativePath: directoryPath } : {}),
-        },
-      );
+      return requireEnvironmentConnection(activeEnvironmentId).client.projects.listDirectory({
+        cwd: activeCwd,
+        ...(directoryPath.length > 0 ? { relativePath: directoryPath } : {}),
+      });
     },
-    [activeCwd, activeThread?.environmentId],
+    [activeCwd, activeEnvironmentId],
   );
 
   const rootDirectoryQuery = useQuery({
-    queryKey: projectExplorerDirectoryQueryKey(activeThread?.environmentId ?? null, activeCwd, ""),
+    queryKey: projectExplorerDirectoryQueryKey(activeEnvironmentId, activeCwd, ""),
     queryFn: () => fetchDirectory(""),
-    enabled: activeThread?.environmentId !== undefined && activeCwd !== null,
+    enabled: activeEnvironmentId !== null && activeCwd !== null,
     staleTime: 15_000,
   });
 
@@ -469,12 +555,12 @@ export default function ProjectExplorerPanel(props: {
 
   const refreshExplorer = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: [PROJECT_EXPLORER_QUERY_PREFIX, activeThread?.environmentId ?? null, activeCwd],
+      queryKey: [PROJECT_EXPLORER_QUERY_PREFIX, activeEnvironmentId, activeCwd],
     });
     void queryClient.invalidateQueries({
-      queryKey: ["thread-workspace-file", activeThread?.environmentId ?? null, activeCwd],
+      queryKey: ["thread-workspace-file", activeEnvironmentId, activeCwd],
     });
-  }, [activeCwd, activeThread?.environmentId, queryClient]);
+  }, [activeCwd, activeEnvironmentId, queryClient]);
 
   const openFile = useCallback(
     (relativePath: string) => {
@@ -575,7 +661,7 @@ export default function ProjectExplorerPanel(props: {
 
   const handleExplorerContextMenu = useCallback(
     async (target: ExplorerContextTarget, position: { x: number; y: number }) => {
-      if (!activeThread?.environmentId || !activeCwd) {
+      if (!activeEnvironmentId || !activeCwd) {
         return;
       }
 
@@ -617,7 +703,7 @@ export default function ProjectExplorerPanel(props: {
         return;
       }
 
-      const api = requireEnvironmentConnection(activeThread.environmentId).client.projects;
+      const api = requireEnvironmentConnection(activeEnvironmentId).client.projects;
 
       try {
         switch (clicked) {
@@ -746,7 +832,7 @@ export default function ProjectExplorerPanel(props: {
     },
     [
       activeCwd,
-      activeThread?.environmentId,
+      activeEnvironmentId,
       closeOpenPathsMatching,
       copyPathToClipboard,
       openFile,
@@ -764,7 +850,7 @@ export default function ProjectExplorerPanel(props: {
         sidecar="explorer"
         {...(props.onSelectSidecar ? { onSelectSidecar: props.onSelectSidecar } : {})}
       >
-        {!activeThread || !activeCwd ? (
+        {!activeEnvironmentId || !activeCwd ? (
           <div className="flex flex-1 items-center justify-center p-5">
             <div className="flex max-w-[20rem] flex-col items-center gap-2 rounded-xl border border-border/70 bg-card/35 px-4 py-5 text-center">
               <FolderOpenIcon className="size-8 text-muted-foreground/55" />
@@ -812,7 +898,7 @@ export default function ProjectExplorerPanel(props: {
             <ExplorerEntriesList
               entries={rootDirectoryQuery.data.entries}
               depth={0}
-              environmentId={activeThread.environmentId}
+              environmentId={activeEnvironmentId}
               cwd={activeCwd}
               diagnosticCountsByPath={diagnosticCountsByPath}
               resolvedTheme={explorerTheme}

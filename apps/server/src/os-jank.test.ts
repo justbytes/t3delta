@@ -1,8 +1,18 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { fixPath } from "./os-jank.ts";
+import { fixPath, resolveBaseDir } from "./os-jank.ts";
 
 describe("fixPath", () => {
+  it("defaults the base directory to ~/.delta", async () => {
+    const resolved = await resolveBaseDir(undefined).pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.runPromise,
+    );
+    expect(resolved).toBe(`${process.env.HOME ?? ""}/.delta`);
+  });
+
   it("hydrates PATH on linux using the resolved login shell", () => {
     const env: NodeJS.ProcessEnv = {
       SHELL: "/bin/zsh",

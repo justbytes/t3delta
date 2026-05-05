@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "typecheck": "astro check"
+    "build": "node ../../scripts/run-astro-check.mjs build",
+    "preview": "node ../../scripts/run-astro-check.mjs preview",
+    "typecheck": "node ../../scripts/run-astro-check.mjs"
   },
   "dependencies": {
     "astro": "^6.0.4"

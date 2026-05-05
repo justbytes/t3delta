@@ -36,14 +36,25 @@ export type ThreadEditorBufferState =
 
 interface ThreadEditorStoreState {
   buffersByThreadKey: Record<string, Record<string, ThreadEditorBufferState>>;
-  diagnosticsByThreadKey: Record<string, Record<string, { errors: number; warnings: number }>>;
+  editorDiagnosticCountsByThreadKey: Record<
+    string,
+    Record<string, { errors: number; warnings: number }>
+  >;
+  projectRuleDiagnosticCountsByThreadKey: Record<
+    string,
+    Record<string, { errors: number; warnings: number }>
+  >;
   ensureLoadingBuffer: (threadKey: string, filePath: string) => void;
   receiveReadResult: (threadKey: string, result: ProjectReadFileResult) => void;
   setLoadError: (threadKey: string, filePath: string, error: string) => void;
-  setDiagnosticCounts: (
+  setEditorDiagnosticCounts: (
     threadKey: string,
     filePath: string,
     counts: { errors: number; warnings: number },
+  ) => void;
+  replaceProjectRuleDiagnosticCounts: (
+    threadKey: string,
+    countsByPath: Record<string, { errors: number; warnings: number }>,
   ) => void;
   updateDraft: (threadKey: string, filePath: string, contents: string) => void;
   resetDraft: (threadKey: string, filePath: string) => void;
@@ -78,7 +89,8 @@ function updateThreadBuffers(
 
 export const useThreadEditorStore = create<ThreadEditorStoreState>((set) => ({
   buffersByThreadKey: {},
-  diagnosticsByThreadKey: {},
+  editorDiagnosticCountsByThreadKey: {},
+  projectRuleDiagnosticCountsByThreadKey: {},
   ensureLoadingBuffer: (threadKey, filePath) =>
     set((state) =>
       updateThreadBuffers(state, threadKey, (currentThreadBuffers) => {
@@ -155,9 +167,9 @@ export const useThreadEditorStore = create<ThreadEditorStoreState>((set) => ({
         },
       })),
     ),
-  setDiagnosticCounts: (threadKey, filePath, counts) =>
+  setEditorDiagnosticCounts: (threadKey, filePath, counts) =>
     set((state) => {
-      const currentThreadDiagnostics = state.diagnosticsByThreadKey[threadKey] ?? {};
+      const currentThreadDiagnostics = state.editorDiagnosticCountsByThreadKey[threadKey] ?? {};
       const currentCounts = currentThreadDiagnostics[filePath];
       if (
         currentCounts &&
@@ -169,12 +181,39 @@ export const useThreadEditorStore = create<ThreadEditorStoreState>((set) => ({
 
       return {
         ...state,
-        diagnosticsByThreadKey: {
-          ...state.diagnosticsByThreadKey,
+        editorDiagnosticCountsByThreadKey: {
+          ...state.editorDiagnosticCountsByThreadKey,
           [threadKey]: {
             ...currentThreadDiagnostics,
             [filePath]: counts,
           },
+        },
+      };
+    }),
+  replaceProjectRuleDiagnosticCounts: (threadKey, countsByPath) =>
+    set((state) => {
+      const currentThreadDiagnostics =
+        state.projectRuleDiagnosticCountsByThreadKey[threadKey] ?? {};
+      const currentEntries = Object.entries(currentThreadDiagnostics);
+      const nextEntries = Object.entries(countsByPath);
+      const hasSameCounts =
+        currentEntries.length === nextEntries.length &&
+        nextEntries.every(([filePath, counts]) => {
+          const currentCounts = currentThreadDiagnostics[filePath];
+          return (
+            currentCounts?.errors === counts.errors && currentCounts.warnings === counts.warnings
+          );
+        });
+
+      if (hasSameCounts) {
+        return state;
+      }
+
+      return {
+        ...state,
+        projectRuleDiagnosticCountsByThreadKey: {
+          ...state.projectRuleDiagnosticCountsByThreadKey,
+          [threadKey]: countsByPath,
         },
       };
     }),

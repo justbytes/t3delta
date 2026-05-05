@@ -20,9 +20,8 @@ import {
 } from "@t3delta/contracts";
 import { scopeThreadRef } from "@t3delta/client-runtime";
 import {
-  DEFAULT_EDITOR_ENABLED_LANGUAGE_IDS,
-  DEFAULT_EDITOR_LANGUAGE_SERVER_PREFERENCES,
   DEFAULT_UNIFIED_SETTINGS,
+  type CodeRuleSeverity,
   type EditorCustomAssociation,
   type EditorLanguageId,
 } from "@t3delta/contracts/settings";
@@ -106,13 +105,15 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
-function arraysEqual<T>(left: readonly T[], right: readonly T[]) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 function recordsEqual(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
+
+const CODE_RULE_SEVERITY_LABELS: Record<CodeRuleSeverity, string> = {
+  off: "Off",
+  warning: "Warning",
+  error: "Error",
+};
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -530,6 +531,10 @@ export function GeneralSettingsPanel() {
       settings.providers.claudeAgent.launchArgs !== "",
     ),
   });
+  const [openCodeRuleDetails, setOpenCodeRuleDetails] = useState<Record<string, boolean>>({
+    javascriptTypeScript: true,
+  });
+  const showAdvancedLanguageServers = useMemo(() => false, []);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -1091,120 +1096,274 @@ export function GeneralSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection title="Editor language support">
-        <SettingsRow
-          title="Monaco diagnostics"
-          description="Use Monaco's deeper JS and TS checker for immediate inline feedback. Syntax errors are always shown inline."
-          resetAction={
-            settings.enableMonacoEditorDiagnostics !==
-            DEFAULT_UNIFIED_SETTINGS.enableMonacoEditorDiagnostics ? (
-              <SettingResetButton
-                label="Monaco diagnostics"
-                onClick={() =>
-                  updateSettings({
-                    enableMonacoEditorDiagnostics:
-                      DEFAULT_UNIFIED_SETTINGS.enableMonacoEditorDiagnostics,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableMonacoEditorDiagnostics}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableMonacoEditorDiagnostics: Boolean(checked) })
+      <SettingsSection title="Code rules">
+        <div className="border-t border-border/60 first:border-t-0">
+          <div className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5">
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex min-h-5 items-center gap-1.5">
+                <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+                  JavaScript and TypeScript
+                </h3>
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                  {!recordsEqual(
+                    settings.codeRules.javascriptTypeScript,
+                    DEFAULT_UNIFIED_SETTINGS.codeRules.javascriptTypeScript,
+                  ) ? (
+                    <SettingResetButton
+                      label="JavaScript and TypeScript code rules"
+                      onClick={() =>
+                        updateSettings({
+                          codeRules: {
+                            ...settings.codeRules,
+                            javascriptTypeScript: {
+                              ...DEFAULT_UNIFIED_SETTINGS.codeRules.javascriptTypeScript,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  ) : null}
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground/80">
+                App defaults for projects without ESLint or Biome rules.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              onClick={() =>
+                setOpenCodeRuleDetails((existing) => ({
+                  ...existing,
+                  javascriptTypeScript: !existing.javascriptTypeScript,
+                }))
               }
-              aria-label="Enable Monaco diagnostics"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Project diagnostics"
-          description="Run saved-file diagnostics with repo-local tools like ESLint, tsc, cargo, Python, and solhint. This is the primary diagnostics path."
-          resetAction={
-            settings.enableProjectDiagnostics !==
-            DEFAULT_UNIFIED_SETTINGS.enableProjectDiagnostics ? (
-              <SettingResetButton
-                label="project diagnostics"
-                onClick={() =>
-                  updateSettings({
-                    enableProjectDiagnostics: DEFAULT_UNIFIED_SETTINGS.enableProjectDiagnostics,
-                  })
-                }
+              aria-expanded={openCodeRuleDetails.javascriptTypeScript}
+              aria-label="Toggle JavaScript and TypeScript code rules"
+            >
+              <ChevronDownIcon
+                className={cn(
+                  "size-4 shrink-0 transition-transform",
+                  openCodeRuleDetails.javascriptTypeScript && "rotate-180",
+                )}
               />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableProjectDiagnostics}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableProjectDiagnostics: Boolean(checked) })
-              }
-              aria-label="Enable project diagnostics"
-            />
-          }
-        />
+            </button>
+          </div>
 
-        <SettingsRow
-          title="Built-in languages"
-          description="Enable or disable curated built-in language coverage. Disabled languages fall back to plain text."
-          resetAction={
-            !arraysEqual(settings.editorEnabledLanguageIds, DEFAULT_EDITOR_ENABLED_LANGUAGE_IDS) ? (
-              <SettingResetButton
-                label="built-in languages"
-                onClick={() =>
-                  updateSettings({
-                    editorEnabledLanguageIds: [...DEFAULT_EDITOR_ENABLED_LANGUAGE_IDS],
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-2">
-              {CURATED_EDITOR_LANGUAGES.map((language) => {
-                const enabled = settings.editorEnabledLanguageIds.includes(language.id);
-                return (
-                  <div
-                    key={language.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border border-border/70 bg-card/30 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground">{language.label}</div>
-                      <div className="text-xs text-muted-foreground">{language.description}</div>
-                      <div className="text-[11px] text-muted-foreground/70">
-                        {language.examples}
-                      </div>
+          <Collapsible
+            open={openCodeRuleDetails.javascriptTypeScript}
+            onOpenChange={(open) =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                javascriptTypeScript: open,
+              }))
+            }
+          >
+            <CollapsibleContent>
+              <div className="space-y-4 border-t border-border/60 px-4 py-4 sm:px-5">
+                <div className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Max file lines
                     </div>
-                    <Switch
-                      checked={enabled}
-                      onCheckedChange={(checked) => {
-                        const nextEnabledLanguages = new Set(settings.editorEnabledLanguageIds);
-                        if (checked) {
-                          nextEnabledLanguages.add(language.id);
-                        } else {
-                          nextEnabledLanguages.delete(language.id);
+                    <Input
+                      nativeInput
+                      type="number"
+                      min={1}
+                      value={settings.codeRules.javascriptTypeScript.maxFileLines}
+                      onChange={(event) => {
+                        const maxFileLines = Number.parseInt(event.target.value, 10);
+                        if (!Number.isFinite(maxFileLines) || maxFileLines < 1) {
+                          return;
                         }
                         updateSettings({
-                          editorEnabledLanguageIds: CURATED_EDITOR_LANGUAGES.filter((entry) =>
-                            nextEnabledLanguages.has(entry.id),
-                          ).map((entry) => entry.id),
+                          codeRules: {
+                            ...settings.codeRules,
+                            javascriptTypeScript: {
+                              ...settings.codeRules.javascriptTypeScript,
+                              maxFileLines,
+                            },
+                          },
                         });
                       }}
-                      aria-label={`Enable ${language.label}`}
+                      aria-label="Maximum JavaScript and TypeScript file lines"
                     />
                   </div>
-                );
-              })}
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Line rule
+                    </div>
+                    <Select
+                      value={settings.codeRules.javascriptTypeScript.maxFileLinesSeverity}
+                      onValueChange={(value) =>
+                        updateSettings({
+                          codeRules: {
+                            ...settings.codeRules,
+                            javascriptTypeScript: {
+                              ...settings.codeRules.javascriptTypeScript,
+                              maxFileLinesSeverity: value as CodeRuleSeverity,
+                            },
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger aria-label="Max file lines severity">
+                        <SelectValue>
+                          {
+                            CODE_RULE_SEVERITY_LABELS[
+                              settings.codeRules.javascriptTypeScript.maxFileLinesSeverity
+                            ]
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
+                          <SelectItem hideIndicator key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid w-full gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Explicit any
+                    </div>
+                    <Select
+                      value={settings.codeRules.javascriptTypeScript.explicitAny}
+                      onValueChange={(value) =>
+                        updateSettings({
+                          codeRules: {
+                            ...settings.codeRules,
+                            javascriptTypeScript: {
+                              ...settings.codeRules.javascriptTypeScript,
+                              explicitAny: value as CodeRuleSeverity,
+                            },
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger aria-label="Explicit any rule severity">
+                        <SelectValue>
+                          {
+                            CODE_RULE_SEVERITY_LABELS[
+                              settings.codeRules.javascriptTypeScript.explicitAny
+                            ]
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
+                          <SelectItem hideIndicator key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Unused imports
+                    </div>
+                    <Select
+                      value={settings.codeRules.javascriptTypeScript.unusedImports}
+                      onValueChange={(value) =>
+                        updateSettings({
+                          codeRules: {
+                            ...settings.codeRules,
+                            javascriptTypeScript: {
+                              ...settings.codeRules.javascriptTypeScript,
+                              unusedImports: value as CodeRuleSeverity,
+                            },
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger aria-label="Unused imports rule severity">
+                        <SelectValue>
+                          {
+                            CODE_RULE_SEVERITY_LABELS[
+                              settings.codeRules.javascriptTypeScript.unusedImports
+                            ]
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
+                          <SelectItem hideIndicator key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Unused variables
+                    </div>
+                    <Select
+                      value={settings.codeRules.javascriptTypeScript.unusedVariables}
+                      onValueChange={(value) =>
+                        updateSettings({
+                          codeRules: {
+                            ...settings.codeRules,
+                            javascriptTypeScript: {
+                              ...settings.codeRules.javascriptTypeScript,
+                              unusedVariables: value as CodeRuleSeverity,
+                            },
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger aria-label="Unused variables rule severity">
+                        <SelectValue>
+                          {
+                            CODE_RULE_SEVERITY_LABELS[
+                              settings.codeRules.javascriptTypeScript.unusedVariables
+                            ]
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
+                          <SelectItem hideIndicator key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+
+        {CURATED_EDITOR_LANGUAGES.filter(
+          (language) => language.id !== "javascript" && language.id !== "typescript",
+        ).map((language) => (
+          <div key={language.id} className="border-t border-border/60 px-4 py-4 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+                  {language.label}
+                </h3>
+                <p className="text-xs leading-relaxed text-muted-foreground/80">
+                  Built-in rules are not configured for this language yet.
+                </p>
+              </div>
+              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground/30" />
             </div>
-          }
-        />
+          </div>
+        ))}
 
         <SettingsRow
           title="Custom file associations"
-          description="Override language detection for edge-case filenames or project-specific patterns like `*.component` or `vite.config.*`."
+          description="Treat project-specific filename patterns as a known language before normal extension detection runs."
+          layout="stacked"
           resetAction={
             settings.editorCustomAssociations.length > 0 ? (
               <SettingResetButton
@@ -1218,7 +1377,7 @@ export function GeneralSettingsPanel() {
             ) : null
           }
           control={
-            <div className="w-full max-w-[34rem] space-y-2">
+            <div className="w-full space-y-2">
               {settings.editorCustomAssociations.map((association, index) => (
                 <div key={`${association.languageId}-${index}`} className="flex items-center gap-2">
                   <Input
@@ -1234,7 +1393,7 @@ export function GeneralSettingsPanel() {
                         editorCustomAssociations: nextAssociations,
                       });
                     }}
-                    placeholder="*.tsx"
+                    placeholder="*.component"
                     spellCheck={false}
                     aria-label={`Custom file association pattern ${index + 1}`}
                   />
@@ -1294,7 +1453,7 @@ export function GeneralSettingsPanel() {
                     editorCustomAssociations: [
                       ...settings.editorCustomAssociations,
                       {
-                        pattern: "*.*",
+                        pattern: "*.component",
                         languageId: "typescript",
                       } satisfies EditorCustomAssociation,
                     ],
@@ -1307,810 +1466,714 @@ export function GeneralSettingsPanel() {
             </div>
           }
         />
-
-        <SettingsRow
-          title="Language servers"
-          description="Choose preferred language servers for curated languages. TypeScript and JavaScript now use this through the desktop LSP host, and the remaining languages will follow the same path."
-          resetAction={
-            !recordsEqual(
-              settings.editorLanguageServerPreferences,
-              DEFAULT_EDITOR_LANGUAGE_SERVER_PREFERENCES,
-            ) ? (
-              <SettingResetButton
-                label="language server preferences"
-                onClick={() =>
-                  updateSettings({
-                    editorLanguageServerPreferences: {
-                      ...DEFAULT_EDITOR_LANGUAGE_SERVER_PREFERENCES,
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-2">
-              {CURATED_EDITOR_LANGUAGES.filter((language) => language.serverOptions.length > 0).map(
-                (language) => {
-                  const preference = settings.editorLanguageServerPreferences[language.id] ??
-                    DEFAULT_EDITOR_LANGUAGE_SERVER_PREFERENCES[language.id] ?? {
-                      enabled: true,
-                      serverId: "",
-                    };
-
-                  return (
-                    <div
-                      key={language.id}
-                      className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/30 px-3 py-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-foreground">{language.label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {language.id === "javascript" || language.id === "typescript"
-                            ? `${language.serverOptions.map((server) => server.label).join(", ")} active`
-                            : language.serverOptions.map((server) => server.label).join(", ")}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={preference.enabled}
-                        onCheckedChange={(checked) =>
-                          updateSettings({
-                            editorLanguageServerPreferences: {
-                              ...settings.editorLanguageServerPreferences,
-                              [language.id]: {
-                                ...preference,
-                                enabled: Boolean(checked),
-                              },
-                            },
-                          })
-                        }
-                        aria-label={`Enable language server for ${language.label}`}
-                      />
-                      <Select
-                        value={preference.serverId || language.serverOptions[0]?.id || ""}
-                        onValueChange={(value) =>
-                          updateSettings({
-                            editorLanguageServerPreferences: {
-                              ...settings.editorLanguageServerPreferences,
-                              [language.id]: {
-                                ...preference,
-                                serverId: value ?? "",
-                              },
-                            },
-                          })
-                        }
-                      >
-                        <SelectTrigger
-                          className="w-52"
-                          aria-label={`Preferred language server for ${language.label}`}
-                        >
-                          <SelectValue>
-                            {language.serverOptions.find(
-                              (server) => server.id === preference.serverId,
-                            )?.label ??
-                              language.serverOptions[0]?.label ??
-                              "No server"}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectPopup align="end" alignItemWithTrigger={false}>
-                          {language.serverOptions.map((server) => (
-                            <SelectItem hideIndicator key={server.id} value={server.id}>
-                              {server.label}
-                            </SelectItem>
-                          ))}
-                        </SelectPopup>
-                      </Select>
-                    </div>
-                  );
-                },
-              )}
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="TypeScript language server"
-          description="Control the desktop TypeScript and JavaScript LSP process. Use this when the repo needs a custom binary path or launch arguments."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.typescript,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.typescript,
-            ) ? (
-              <SettingResetButton
-                label="TypeScript language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      typescript: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.typescript,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable TS/JS LSP</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to Monaco syntax plus saved-file diagnostics.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.typescript.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        typescript: {
-                          ...settings.languageServers.typescript,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable TypeScript language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.typescript.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        typescript: {
-                          ...settings.languageServers.typescript,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="typescript-language-server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Launch args
-                </div>
-                <Input
-                  value={settings.languageServers.typescript.launchArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        typescript: {
-                          ...settings.languageServers.typescript,
-                          launchArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="--stdio"
-                />
-              </div>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="Rust language server"
-          description="Control the desktop Rust LSP process. Use this when the repo needs a custom rust-analyzer binary path or launch arguments."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.rust,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.rust,
-            ) ? (
-              <SettingResetButton
-                label="Rust language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      rust: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.rust,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable Rust LSP</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to syntax highlighting plus saved-file cargo
-                    diagnostics.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.rust.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        rust: {
-                          ...settings.languageServers.rust,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable Rust language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.rust.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        rust: {
-                          ...settings.languageServers.rust,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="rust-analyzer"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Launch args
-                </div>
-                <Input
-                  value={settings.languageServers.rust.launchArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        rust: {
-                          ...settings.languageServers.rust,
-                          launchArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="Optional rust-analyzer args"
-                />
-              </div>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="Python language server"
-          description="Control the desktop Python LSP process. Use this when the repo needs a custom pyright-langserver binary path or launch arguments. Virtualenv selection can follow after baseline Pyright support is stable."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.python,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.python,
-            ) ? (
-              <SettingResetButton
-                label="Python language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      python: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.python,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable Python LSP</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to syntax highlighting plus saved-file Python
-                    diagnostics.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.python.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        python: {
-                          ...settings.languageServers.python,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable Python language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.python.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        python: {
-                          ...settings.languageServers.python,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="pyright-langserver"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Launch args
-                </div>
-                <Input
-                  value={settings.languageServers.python.launchArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        python: {
-                          ...settings.languageServers.python,
-                          launchArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="--stdio"
-                />
-              </div>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="Solidity language server"
-          description="Control the desktop Solidity LSP process. The first supported path is the Nomic Foundation Solidity language server, with solhint retained for saved-file lint diagnostics."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.solidity,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.solidity,
-            ) ? (
-              <SettingResetButton
-                label="Solidity language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      solidity: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.solidity,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable Solidity LSP</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to syntax highlighting plus saved-file solhint
-                    diagnostics.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.solidity.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        solidity: {
-                          ...settings.languageServers.solidity,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable Solidity language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.solidity.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        solidity: {
-                          ...settings.languageServers.solidity,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="nomicfoundation-solidity-language-server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Launch args
-                </div>
-                <Input
-                  value={settings.languageServers.solidity.launchArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        solidity: {
-                          ...settings.languageServers.solidity,
-                          launchArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="--stdio"
-                />
-              </div>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="C and C++ language server"
-          description="Control the desktop clangd process. Set a compile commands directory when the build database lives under a generated output folder instead of the detected workspace root."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.cpp,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.cpp,
-            ) ? (
-              <SettingResetButton
-                label="C and C++ language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      cpp: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.cpp,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable clangd</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to grammar-only C and C++ editing.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.cpp.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        cpp: {
-                          ...settings.languageServers.cpp,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable C and C++ language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.cpp.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        cpp: {
-                          ...settings.languageServers.cpp,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="clangd"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Launch args
-                </div>
-                <Input
-                  value={settings.languageServers.cpp.launchArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        cpp: {
-                          ...settings.languageServers.cpp,
-                          launchArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="Optional clangd args"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Compile commands directory
-                </div>
-                <Input
-                  value={settings.languageServers.cpp.compileCommandsDirectory}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        cpp: {
-                          ...settings.languageServers.cpp,
-                          compileCommandsDirectory: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="build"
-                />
-              </div>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="Java language server"
-          description="Control the desktop Java LSP process. JDT LS keeps per-workspace state outside the repo by default, but you can override the storage location when needed."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.java,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.java,
-            ) ? (
-              <SettingResetButton
-                label="Java language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      java: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.java,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable Java LSP</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to grammar-only Java editing.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.java.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        java: {
-                          ...settings.languageServers.java,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable Java language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.java.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        java: {
-                          ...settings.languageServers.java,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="jdtls"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  JVM args
-                </div>
-                <Input
-                  value={settings.languageServers.java.jvmArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        java: {
-                          ...settings.languageServers.java,
-                          jvmArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="Optional JVM args"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Workspace storage path
-                </div>
-                <Input
-                  value={settings.languageServers.java.workspaceStoragePath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        java: {
-                          ...settings.languageServers.java,
-                          workspaceStoragePath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="Uses ~/.t3delta/jdtls-workspaces by default"
-                />
-              </div>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="C# language server"
-          description="Control the desktop C# LSP process. The first supported path is `csharp-ls`, with .NET SDK availability treated as a separate runtime dependency from the server binary itself."
-          resetAction={
-            !recordsEqual(
-              settings.languageServers.csharp,
-              DEFAULT_UNIFIED_SETTINGS.languageServers.csharp,
-            ) ? (
-              <SettingResetButton
-                label="C# language server"
-                onClick={() =>
-                  updateSettings({
-                    languageServers: {
-                      ...settings.languageServers,
-                      csharp: {
-                        ...DEFAULT_UNIFIED_SETTINGS.languageServers.csharp,
-                      },
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">Enable C# LSP</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disabling this falls back to grammar-only C# editing.
-                  </div>
-                </div>
-                <Switch
-                  checked={settings.languageServers.csharp.enabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        csharp: {
-                          ...settings.languageServers.csharp,
-                          enabled: Boolean(checked),
-                        },
-                      },
-                    })
-                  }
-                  aria-label="Enable C# language server"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Binary path
-                </div>
-                <Input
-                  value={settings.languageServers.csharp.binaryPath}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        csharp: {
-                          ...settings.languageServers.csharp,
-                          binaryPath: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="csharp-ls"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Launch args
-                </div>
-                <Input
-                  value={settings.languageServers.csharp.launchArgs}
-                  onChange={(event) =>
-                    updateSettings({
-                      languageServers: {
-                        ...settings.languageServers,
-                        csharp: {
-                          ...settings.languageServers.csharp,
-                          launchArgs: event.target.value,
-                        },
-                      },
-                    })
-                  }
-                  placeholder="Optional csharp-ls args"
-                />
-              </div>
-            </div>
-          }
-        />
       </SettingsSection>
+
+      {showAdvancedLanguageServers ? (
+        <SettingsSection title="Advanced language servers">
+          <SettingsRow
+            title="TypeScript language server"
+            description="Control the desktop TypeScript and JavaScript LSP process. Use this when the repo needs a custom binary path or launch arguments."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.typescript,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.typescript,
+              ) ? (
+                <SettingResetButton
+                  label="TypeScript language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        typescript: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.typescript,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable TS/JS LSP</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to Monaco syntax plus saved-file diagnostics.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.typescript.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          typescript: {
+                            ...settings.languageServers.typescript,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable TypeScript language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.typescript.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          typescript: {
+                            ...settings.languageServers.typescript,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="typescript-language-server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Launch args
+                  </div>
+                  <Input
+                    value={settings.languageServers.typescript.launchArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          typescript: {
+                            ...settings.languageServers.typescript,
+                            launchArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="--stdio"
+                  />
+                </div>
+              </div>
+            }
+          />
+
+          <SettingsRow
+            title="Rust language server"
+            description="Control the desktop Rust LSP process. Use this when the repo needs a custom rust-analyzer binary path or launch arguments."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.rust,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.rust,
+              ) ? (
+                <SettingResetButton
+                  label="Rust language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        rust: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.rust,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable Rust LSP</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to syntax highlighting plus saved-file cargo
+                      diagnostics.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.rust.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          rust: {
+                            ...settings.languageServers.rust,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable Rust language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.rust.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          rust: {
+                            ...settings.languageServers.rust,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="rust-analyzer"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Launch args
+                  </div>
+                  <Input
+                    value={settings.languageServers.rust.launchArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          rust: {
+                            ...settings.languageServers.rust,
+                            launchArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="Optional rust-analyzer args"
+                  />
+                </div>
+              </div>
+            }
+          />
+
+          <SettingsRow
+            title="Python language server"
+            description="Control the desktop Python LSP process. Use this when the repo needs a custom pyright-langserver binary path or launch arguments. Virtualenv selection can follow after baseline Pyright support is stable."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.python,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.python,
+              ) ? (
+                <SettingResetButton
+                  label="Python language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        python: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.python,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable Python LSP</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to syntax highlighting plus saved-file Python
+                      diagnostics.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.python.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          python: {
+                            ...settings.languageServers.python,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable Python language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.python.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          python: {
+                            ...settings.languageServers.python,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="pyright-langserver"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Launch args
+                  </div>
+                  <Input
+                    value={settings.languageServers.python.launchArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          python: {
+                            ...settings.languageServers.python,
+                            launchArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="--stdio"
+                  />
+                </div>
+              </div>
+            }
+          />
+
+          <SettingsRow
+            title="Solidity language server"
+            description="Control the desktop Solidity LSP process. The first supported path is the Nomic Foundation Solidity language server, with solhint retained for saved-file lint diagnostics."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.solidity,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.solidity,
+              ) ? (
+                <SettingResetButton
+                  label="Solidity language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        solidity: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.solidity,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable Solidity LSP</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to syntax highlighting plus saved-file solhint
+                      diagnostics.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.solidity.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          solidity: {
+                            ...settings.languageServers.solidity,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable Solidity language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.solidity.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          solidity: {
+                            ...settings.languageServers.solidity,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="nomicfoundation-solidity-language-server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Launch args
+                  </div>
+                  <Input
+                    value={settings.languageServers.solidity.launchArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          solidity: {
+                            ...settings.languageServers.solidity,
+                            launchArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="--stdio"
+                  />
+                </div>
+              </div>
+            }
+          />
+
+          <SettingsRow
+            title="C and C++ language server"
+            description="Control the desktop clangd process. Set a compile commands directory when the build database lives under a generated output folder instead of the detected workspace root."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.cpp,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.cpp,
+              ) ? (
+                <SettingResetButton
+                  label="C and C++ language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        cpp: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.cpp,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable clangd</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to grammar-only C and C++ editing.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.cpp.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          cpp: {
+                            ...settings.languageServers.cpp,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable C and C++ language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.cpp.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          cpp: {
+                            ...settings.languageServers.cpp,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="clangd"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Launch args
+                  </div>
+                  <Input
+                    value={settings.languageServers.cpp.launchArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          cpp: {
+                            ...settings.languageServers.cpp,
+                            launchArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="Optional clangd args"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Compile commands directory
+                  </div>
+                  <Input
+                    value={settings.languageServers.cpp.compileCommandsDirectory}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          cpp: {
+                            ...settings.languageServers.cpp,
+                            compileCommandsDirectory: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="build"
+                  />
+                </div>
+              </div>
+            }
+          />
+
+          <SettingsRow
+            title="Java language server"
+            description="Control the desktop Java LSP process. JDT LS keeps per-workspace state outside the repo by default, but you can override the storage location when needed."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.java,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.java,
+              ) ? (
+                <SettingResetButton
+                  label="Java language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        java: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.java,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable Java LSP</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to grammar-only Java editing.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.java.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          java: {
+                            ...settings.languageServers.java,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable Java language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.java.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          java: {
+                            ...settings.languageServers.java,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="jdtls"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    JVM args
+                  </div>
+                  <Input
+                    value={settings.languageServers.java.jvmArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          java: {
+                            ...settings.languageServers.java,
+                            jvmArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="Optional JVM args"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Workspace storage path
+                  </div>
+                  <Input
+                    value={settings.languageServers.java.workspaceStoragePath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          java: {
+                            ...settings.languageServers.java,
+                            workspaceStoragePath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="Uses ~/.t3delta/jdtls-workspaces by default"
+                  />
+                </div>
+              </div>
+            }
+          />
+
+          <SettingsRow
+            title="C# language server"
+            description="Control the desktop C# LSP process. The first supported path is `csharp-ls`, with .NET SDK availability treated as a separate runtime dependency from the server binary itself."
+            resetAction={
+              !recordsEqual(
+                settings.languageServers.csharp,
+                DEFAULT_UNIFIED_SETTINGS.languageServers.csharp,
+              ) ? (
+                <SettingResetButton
+                  label="C# language server"
+                  onClick={() =>
+                    updateSettings({
+                      languageServers: {
+                        ...settings.languageServers,
+                        csharp: {
+                          ...DEFAULT_UNIFIED_SETTINGS.languageServers.csharp,
+                        },
+                      },
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="w-full max-w-[34rem] space-y-3 rounded-lg border border-border/70 bg-card/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">Enable C# LSP</div>
+                    <div className="text-xs text-muted-foreground">
+                      Disabling this falls back to grammar-only C# editing.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.languageServers.csharp.enabled}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          csharp: {
+                            ...settings.languageServers.csharp,
+                            enabled: Boolean(checked),
+                          },
+                        },
+                      })
+                    }
+                    aria-label="Enable C# language server"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Binary path
+                  </div>
+                  <Input
+                    value={settings.languageServers.csharp.binaryPath}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          csharp: {
+                            ...settings.languageServers.csharp,
+                            binaryPath: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="csharp-ls"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Launch args
+                  </div>
+                  <Input
+                    value={settings.languageServers.csharp.launchArgs}
+                    onChange={(event) =>
+                      updateSettings({
+                        languageServers: {
+                          ...settings.languageServers,
+                          csharp: {
+                            ...settings.languageServers.csharp,
+                            launchArgs: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="Optional csharp-ls args"
+                  />
+                </div>
+              </div>
+            }
+          />
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection
         title="Providers"

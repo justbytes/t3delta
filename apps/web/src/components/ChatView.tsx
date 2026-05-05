@@ -89,6 +89,7 @@ import {
   type TurnDiffSummary,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
+import { useProjectCodeRuleDiagnostics } from "../hooks/useProjectCodeRuleDiagnostics";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3delta/shared/git";
@@ -793,6 +794,7 @@ export default function ChatView(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const workspaceToolOpen = rawSearch.diff === "1";
+  const effectiveWorkspaceToolOpen = workspaceToolOpen;
   const workspaceToolMode = rawSearch.sidecar === "explorer" ? "explorer" : "diff";
   const migrateThreadWorkspaceState = useUiStateStore((state) => state.migrateThreadWorkspaceState);
   const threadWorkspace = useUiStateStore(
@@ -1515,6 +1517,11 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  useProjectCodeRuleDiagnostics({
+    environmentId,
+    cwd: activeWorkspaceRoot ?? null,
+    threadKey: routeThreadKey,
+  });
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -1580,11 +1587,23 @@ export default function ChatView(props: ChatViewProps) {
     });
   }, [environmentId, isServerThread, navigate, onDiffPanelOpen, threadId, workspaceToolOpen]);
   const onOpenExplorer = useCallback(() => {
-    if (!isServerThread) {
+    if (!isServerThread && !draftId) {
       return;
     }
-    if (!workspaceToolOpen) {
+    if (!effectiveWorkspaceToolOpen) {
       onDiffPanelOpen?.();
+    }
+    if (draftId) {
+      void navigate({
+        to: "/draft/$draftId",
+        params: buildDraftThreadRouteParams(draftId),
+        replace: true,
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          return { ...rest, diff: "1", sidecar: "explorer" };
+        },
+      });
+      return;
     }
     void navigate({
       to: "/$environmentId/$threadId",
@@ -1598,7 +1617,21 @@ export default function ChatView(props: ChatViewProps) {
         return { ...rest, diff: "1", sidecar: "explorer" };
       },
     });
-  }, [environmentId, isServerThread, navigate, onDiffPanelOpen, threadId, workspaceToolOpen]);
+  }, [
+    draftId,
+    effectiveWorkspaceToolOpen,
+    environmentId,
+    isServerThread,
+    navigate,
+    onDiffPanelOpen,
+    threadId,
+  ]);
+  useEffect(() => {
+    if (!effectiveWorkspaceToolOpen || workspaceToolMode !== "diff" || isGitRepo) {
+      return;
+    }
+    onOpenExplorer();
+  }, [effectiveWorkspaceToolOpen, isGitRepo, onOpenExplorer, workspaceToolMode]);
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -1633,8 +1666,29 @@ export default function ChatView(props: ChatViewProps) {
     workspaceToolOpen,
   ]);
   const onToggleWorkspaceTool = useCallback(() => {
+    if (!isGitRepo && workspaceToolMode === "diff") {
+      onOpenExplorer();
+      return;
+    }
+
     if (workspaceToolMode === "explorer") {
-      if (workspaceToolOpen) {
+      if (effectiveWorkspaceToolOpen) {
+        if (draftId) {
+          void navigate({
+            to: "/draft/$draftId",
+            params: buildDraftThreadRouteParams(draftId),
+            replace: true,
+            search: (previous) => {
+              const rest = stripDiffSearchParams(previous);
+              return {
+                ...rest,
+                diff: undefined,
+                ...(previous.sidecar ? { sidecar: previous.sidecar } : {}),
+              };
+            },
+          });
+          return;
+        }
         void navigate({
           to: "/$environmentId/$threadId",
           params: {
@@ -1659,13 +1713,15 @@ export default function ChatView(props: ChatViewProps) {
 
     onToggleDiff();
   }, [
+    draftId,
     environmentId,
+    isGitRepo,
     navigate,
     onOpenExplorer,
     onToggleDiff,
     threadId,
+    effectiveWorkspaceToolOpen,
     workspaceToolMode,
-    workspaceToolOpen,
   ]);
   const onSwitchCenterPaneToAgent = useCallback(() => {
     if (!activeThreadKey) {
@@ -3442,9 +3498,11 @@ export default function ChatView(props: ChatViewProps) {
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
-          workspaceToolMode={workspaceToolMode}
+          workspaceToolMode={
+            !isGitRepo && workspaceToolMode === "diff" ? "explorer" : workspaceToolMode
+          }
           gitCwd={gitCwd}
-          workspaceToolOpen={workspaceToolOpen}
+          workspaceToolOpen={effectiveWorkspaceToolOpen}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
@@ -3725,7 +3783,6 @@ export default function ChatView(props: ChatViewProps) {
           />
         </RightPanelSheet>
       ) : null}
-
       {expandedImage && (
         <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />
       )}
