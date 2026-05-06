@@ -9,9 +9,20 @@ import type {
 } from "@t3delta/contracts";
 import {
   BUILT_IN_JS_TS_RULE_CONFIG_FILES,
-  evaluateBuiltInJavaScriptTypeScriptCodeRules,
-  hasEnabledBuiltInJavaScriptTypeScriptCodeRules,
-  isBuiltInJavaScriptTypeScriptRuleTarget,
+  CPP_EXTENSIONS,
+  CSHARP_EXTENSIONS,
+  evaluateGenericCodeRules,
+  evaluateJavaScriptCodeRules,
+  evaluateTypeScriptCodeRules,
+  hasEnabledGenericCodeRules,
+  hasEnabledJavaScriptCodeRules,
+  hasEnabledTypeScriptCodeRules,
+  isBuiltInJavaScriptTypeScriptRuleConfigFile,
+  JAVASCRIPT_EXTENSIONS,
+  PYTHON_EXTENSIONS,
+  RUST_EXTENSIONS,
+  SOLIDITY_EXTENSIONS,
+  TYPESCRIPT_EXTENSIONS,
 } from "@t3delta/shared/projectCodeRules";
 import { runProcess } from "../../processRunner.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -40,9 +51,9 @@ interface DiagnosticsAdapterOutcome {
 }
 
 const TYPESCRIPT_LIKE_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]);
-const PYTHON_EXTENSIONS = new Set(["py"]);
-const RUST_EXTENSIONS = new Set(["rs"]);
-const SOLIDITY_EXTENSIONS = new Set(["sol"]);
+const RUST_DIAGNOSTICS_EXTENSIONS = new Set(["rs"]);
+const PYTHON_DIAGNOSTICS_EXTENSIONS = new Set(["py"]);
+const SOLIDITY_DIAGNOSTICS_EXTENSIONS = new Set(["sol"]);
 const ESLINT_CONFIG_FILES = [
   "eslint.config.js",
   "eslint.config.mjs",
@@ -220,18 +231,18 @@ async function hasJsTsRuleConfig(context: DiagnosticsContext): Promise<boolean> 
   );
 }
 
-async function runBuiltInJavaScriptTypeScriptCodeRules(
+async function runBuiltInJavaScriptCodeRules(
   context: DiagnosticsContext,
   settings: ServerSettings,
 ): Promise<DiagnosticsAdapterOutcome> {
-  if (!isBuiltInJavaScriptTypeScriptRuleTarget(context.targetRelativePath)) {
+  if (!JAVASCRIPT_EXTENSIONS.has(context.targetExtension)) {
     return {
       diagnostics: [],
       run: makeToolRun(
         "t3delta-rules",
-        "built-in JS/TS code rules",
+        "built-in JavaScript code rules",
         "notApplicable",
-        "File is not JS or TS.",
+        "File is not JavaScript.",
       ),
     };
   }
@@ -241,23 +252,23 @@ async function runBuiltInJavaScriptTypeScriptCodeRules(
       diagnostics: [],
       run: makeToolRun(
         "t3delta-rules",
-        "built-in JS/TS code rules",
+        "built-in JavaScript code rules",
         "notApplicable",
         "Project ESLint config found.",
       ),
     };
   }
 
-  const rules = settings.codeRules.javascriptTypeScript;
-  if (!hasEnabledBuiltInJavaScriptTypeScriptCodeRules(rules)) {
+  const rules = settings.codeRules.javascript;
+  if (!hasEnabledJavaScriptCodeRules(rules)) {
     return {
       diagnostics: [],
-      run: makeToolRun("t3delta-rules", "built-in JS/TS code rules", "notApplicable"),
+      run: makeToolRun("t3delta-rules", "built-in JavaScript code rules", "notApplicable"),
     };
   }
 
   const sourceText = await fs.promises.readFile(context.targetAbsolutePath, "utf8");
-  const diagnostics = evaluateBuiltInJavaScriptTypeScriptCodeRules({
+  const diagnostics = evaluateJavaScriptCodeRules({
     relativePath: context.targetRelativePath,
     sourceText,
     rules,
@@ -265,7 +276,103 @@ async function runBuiltInJavaScriptTypeScriptCodeRules(
 
   return {
     diagnostics,
-    run: makeToolRun("t3delta-rules", "built-in JS/TS code rules", "ran"),
+    run: makeToolRun("t3delta-rules", "built-in JavaScript code rules", "ran"),
+  };
+}
+
+async function runBuiltInTypeScriptCodeRules(
+  context: DiagnosticsContext,
+  settings: ServerSettings,
+): Promise<DiagnosticsAdapterOutcome> {
+  if (!TYPESCRIPT_EXTENSIONS.has(context.targetExtension)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun(
+        "t3delta-rules",
+        "built-in TypeScript code rules",
+        "notApplicable",
+        "File is not TypeScript.",
+      ),
+    };
+  }
+
+  if (await hasJsTsRuleConfig(context)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun(
+        "t3delta-rules",
+        "built-in TypeScript code rules",
+        "notApplicable",
+        "Project ESLint config found.",
+      ),
+    };
+  }
+
+  const rules = settings.codeRules.typescript;
+  if (!hasEnabledTypeScriptCodeRules(rules)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun("t3delta-rules", "built-in TypeScript code rules", "notApplicable"),
+    };
+  }
+
+  const sourceText = await fs.promises.readFile(context.targetAbsolutePath, "utf8");
+  const diagnostics = evaluateTypeScriptCodeRules({
+    relativePath: context.targetRelativePath,
+    sourceText,
+    rules,
+  });
+
+  return {
+    diagnostics,
+    run: makeToolRun("t3delta-rules", "built-in TypeScript code rules", "ran"),
+  };
+}
+
+async function runBuiltInMaxFileLinesCodeRules(
+  context: DiagnosticsContext,
+  settings: ServerSettings,
+  language: "rust" | "python" | "solidity" | "cpp" | "csharp",
+): Promise<DiagnosticsAdapterOutcome> {
+  const extensionSets: Record<typeof language, Set<string>> = {
+    rust: RUST_EXTENSIONS,
+    python: PYTHON_EXTENSIONS,
+    solidity: SOLIDITY_EXTENSIONS,
+    cpp: CPP_EXTENSIONS,
+    csharp: CSHARP_EXTENSIONS,
+  };
+
+  if (!extensionSets[language].has(context.targetExtension)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun(
+        "t3delta-rules",
+        `built-in ${language} code rules`,
+        "notApplicable",
+        `File is not ${language}.`,
+      ),
+    };
+  }
+
+  const rules = settings.codeRules[language];
+  if (!hasEnabledGenericCodeRules(rules)) {
+    return {
+      diagnostics: [],
+      run: makeToolRun("t3delta-rules", `built-in ${language} code rules`, "notApplicable"),
+    };
+  }
+
+  const sourceText = await fs.promises.readFile(context.targetAbsolutePath, "utf8");
+  const diagnostics = evaluateGenericCodeRules({
+    relativePath: context.targetRelativePath,
+    sourceText,
+    rules,
+    language,
+  });
+
+  return {
+    diagnostics,
+    run: makeToolRun("t3delta-rules", `built-in ${language} code rules`, "ran"),
   };
 }
 
@@ -584,7 +691,7 @@ async function runEslintDiagnostics(
 }
 
 async function runRustDiagnostics(context: DiagnosticsContext): Promise<DiagnosticsAdapterOutcome> {
-  if (!RUST_EXTENSIONS.has(context.targetExtension)) {
+  if (!RUST_DIAGNOSTICS_EXTENSIONS.has(context.targetExtension)) {
     return {
       diagnostics: [],
       run: makeToolRun("cargo", "cargo check", "notApplicable", "File is not Rust."),
@@ -624,7 +731,7 @@ async function runRustDiagnostics(context: DiagnosticsContext): Promise<Diagnost
 async function runPythonDiagnostics(
   context: DiagnosticsContext,
 ): Promise<DiagnosticsAdapterOutcome> {
-  if (!PYTHON_EXTENSIONS.has(context.targetExtension)) {
+  if (!PYTHON_DIAGNOSTICS_EXTENSIONS.has(context.targetExtension)) {
     return {
       diagnostics: [],
       run: makeToolRun(
@@ -666,7 +773,7 @@ async function runPythonDiagnostics(
 async function runSolidityDiagnostics(
   context: DiagnosticsContext,
 ): Promise<DiagnosticsAdapterOutcome> {
-  if (!SOLIDITY_EXTENSIONS.has(context.targetExtension)) {
+  if (!SOLIDITY_DIAGNOSTICS_EXTENSIONS.has(context.targetExtension)) {
     return {
       diagnostics: [],
       run: makeToolRun("solhint", "solhint -f json", "notApplicable", "File is not Solidity."),
@@ -713,7 +820,13 @@ async function runAdapters(
   settings: ServerSettings,
 ): Promise<readonly DiagnosticsAdapterOutcome[]> {
   return Promise.all([
-    runBuiltInJavaScriptTypeScriptCodeRules(context, settings),
+    runBuiltInJavaScriptCodeRules(context, settings),
+    runBuiltInTypeScriptCodeRules(context, settings),
+    runBuiltInMaxFileLinesCodeRules(context, settings, "rust"),
+    runBuiltInMaxFileLinesCodeRules(context, settings, "python"),
+    runBuiltInMaxFileLinesCodeRules(context, settings, "solidity"),
+    runBuiltInMaxFileLinesCodeRules(context, settings, "cpp"),
+    runBuiltInMaxFileLinesCodeRules(context, settings, "csharp"),
     runTypeScriptDiagnostics(context),
     runEslintDiagnostics(context),
     runRustDiagnostics(context),

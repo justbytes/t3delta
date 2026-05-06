@@ -89,21 +89,90 @@ export type EditorLanguageServerPreference = typeof EditorLanguageServerPreferen
 export const CodeRuleSeverity = Schema.Literals(["off", "warning", "error"]);
 export type CodeRuleSeverity = typeof CodeRuleSeverity.Type;
 
-export const JavaScriptTypeScriptCodeRules = Schema.Struct({
-  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+export const JavaScriptCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(400))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  noConsole: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("off"))),
+});
+export type JavaScriptCodeRules = typeof JavaScriptCodeRules.Type;
+
+export const TypeScriptCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(400))),
   maxFileLinesSeverity: CodeRuleSeverity.pipe(
     Schema.withDecodingDefault(Effect.succeed("warning")),
   ),
   explicitAny: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
   unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
   unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  noConsole: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("off"))),
 });
-export type JavaScriptTypeScriptCodeRules = typeof JavaScriptTypeScriptCodeRules.Type;
+export type TypeScriptCodeRules = typeof TypeScriptCodeRules.Type;
+
+export const RustCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unwrapUsage: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type RustCodeRules = typeof RustCodeRules.Type;
+
+export const PythonCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  bareExcept: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type PythonCodeRules = typeof PythonCodeRules.Type;
+
+export const SolidityCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  txOriginUsage: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type SolidityCodeRules = typeof SolidityCodeRules.Type;
+
+export const CppCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type CppCodeRules = typeof CppCodeRules.Type;
+
+export const CsharpCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type CsharpCodeRules = typeof CsharpCodeRules.Type;
 
 export const CodeRulesSettings = Schema.Struct({
-  javascriptTypeScript: JavaScriptTypeScriptCodeRules.pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
+  javascript: JavaScriptCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  typescript: TypeScriptCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  rust: RustCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  python: PythonCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  solidity: SolidityCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  cpp: CppCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  csharp: CsharpCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type CodeRulesSettings = typeof CodeRulesSettings.Type;
 
@@ -456,16 +525,69 @@ const CssLanguageServerSettingsPatch = Schema.Struct({
   launchArgs: Schema.optionalKey(Schema.String),
 });
 
-const JavaScriptTypeScriptCodeRulesPatch = Schema.Struct({
+const JavaScriptCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+  noConsole: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const TypeScriptCodeRulesPatch = Schema.Struct({
   maxFileLines: Schema.optionalKey(PositiveInt),
   maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
   explicitAny: Schema.optionalKey(CodeRuleSeverity),
   unusedImports: Schema.optionalKey(CodeRuleSeverity),
   unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+  noConsole: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const RustCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+  unwrapUsage: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const PythonCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+  bareExcept: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const SolidityCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+  txOriginUsage: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const CppCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+});
+
+const CsharpCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
 });
 
 const CodeRulesSettingsPatch = Schema.Struct({
-  javascriptTypeScript: Schema.optionalKey(JavaScriptTypeScriptCodeRulesPatch),
+  javascript: Schema.optionalKey(JavaScriptCodeRulesPatch),
+  typescript: Schema.optionalKey(TypeScriptCodeRulesPatch),
+  rust: Schema.optionalKey(RustCodeRulesPatch),
+  python: Schema.optionalKey(PythonCodeRulesPatch),
+  solidity: Schema.optionalKey(SolidityCodeRulesPatch),
+  cpp: Schema.optionalKey(CppCodeRulesPatch),
+  csharp: Schema.optionalKey(CsharpCodeRulesPatch),
 });
 
 export const ServerSettingsPatch = Schema.Struct({

@@ -1,11 +1,16 @@
 import type { EnvironmentId } from "@t3delta/contracts";
 import {
-  evaluateBuiltInJavaScriptTypeScriptCodeRules,
-  hasEnabledBuiltInJavaScriptTypeScriptCodeRules,
+  evaluateGenericCodeRules,
+  evaluateJavaScriptCodeRules,
+  evaluateTypeScriptCodeRules,
+  hasEnabledGenericCodeRules,
+  hasEnabledJavaScriptCodeRules,
+  hasEnabledTypeScriptCodeRules,
   isBuiltInJavaScriptTypeScriptRuleConfigFile,
-  isBuiltInJavaScriptTypeScriptRuleTarget,
+  JAVASCRIPT_EXTENSIONS,
   PROJECT_CODE_RULE_SCAN_MAX_FILES,
   PROJECT_CODE_RULE_SCAN_SKIP_DIRECTORY_NAMES,
+  TYPESCRIPT_EXTENSIONS,
 } from "@t3delta/shared/projectCodeRules";
 import { useCallback, useEffect } from "react";
 
@@ -43,12 +48,101 @@ function shouldSkipDirectoryPath(pathValue: string): boolean {
   return PROJECT_CODE_RULE_SCAN_SKIP_DIRECTORY_NAMES.has(basenameOfPath(pathValue));
 }
 
+function fileExtensionOf(pathValue: string): string {
+  const filename = basenameOfPath(pathValue);
+  const extension = filename.split(".").at(-1);
+  return extension === filename ? "" : (extension?.toLowerCase() ?? "");
+}
+
+interface LanguageConfig {
+  key: "javascript" | "typescript" | "rust" | "python" | "solidity" | "cpp" | "csharp";
+  extensions: Set<string>;
+  hasEnabled: (rules: Record<string, unknown>) => boolean;
+  evaluate: (input: {
+    relativePath: string;
+    sourceText: string;
+    rules: Record<string, unknown>;
+  }) => readonly { severity: "error" | "warning" | "information" | "hint" }[];
+  skipIfProjectConfig?: boolean;
+}
+
+const LANGUAGE_CONFIGS: LanguageConfig[] = [
+  {
+    key: "javascript",
+    extensions: JAVASCRIPT_EXTENSIONS,
+    hasEnabled: (rules) =>
+      hasEnabledJavaScriptCodeRules(rules as Parameters<typeof hasEnabledJavaScriptCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateJavaScriptCodeRules(input as Parameters<typeof evaluateJavaScriptCodeRules>[0]),
+    skipIfProjectConfig: true,
+  },
+  {
+    key: "typescript",
+    extensions: TYPESCRIPT_EXTENSIONS,
+    hasEnabled: (rules) =>
+      hasEnabledTypeScriptCodeRules(rules as Parameters<typeof hasEnabledTypeScriptCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateTypeScriptCodeRules(input as Parameters<typeof evaluateTypeScriptCodeRules>[0]),
+    skipIfProjectConfig: true,
+  },
+  {
+    key: "rust",
+    extensions: new Set(["rs"]),
+    hasEnabled: (rules) =>
+      hasEnabledGenericCodeRules(rules as Parameters<typeof hasEnabledGenericCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateGenericCodeRules({ ...input, language: "rust" } as Parameters<
+        typeof evaluateGenericCodeRules
+      >[0]),
+  },
+  {
+    key: "python",
+    extensions: new Set(["py", "pyw", "pyi"]),
+    hasEnabled: (rules) =>
+      hasEnabledGenericCodeRules(rules as Parameters<typeof hasEnabledGenericCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateGenericCodeRules({ ...input, language: "python" } as Parameters<
+        typeof evaluateGenericCodeRules
+      >[0]),
+  },
+  {
+    key: "solidity",
+    extensions: new Set(["sol"]),
+    hasEnabled: (rules) =>
+      hasEnabledGenericCodeRules(rules as Parameters<typeof hasEnabledGenericCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateGenericCodeRules({ ...input, language: "solidity" } as Parameters<
+        typeof evaluateGenericCodeRules
+      >[0]),
+  },
+  {
+    key: "cpp",
+    extensions: new Set(["c", "cc", "cpp", "cxx", "h", "hpp", "hxx"]),
+    hasEnabled: (rules) =>
+      hasEnabledGenericCodeRules(rules as Parameters<typeof hasEnabledGenericCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateGenericCodeRules({ ...input, language: "cpp" } as Parameters<
+        typeof evaluateGenericCodeRules
+      >[0]),
+  },
+  {
+    key: "csharp",
+    extensions: new Set(["cs", "csx"]),
+    hasEnabled: (rules) =>
+      hasEnabledGenericCodeRules(rules as Parameters<typeof hasEnabledGenericCodeRules>[0]),
+    evaluate: (input) =>
+      evaluateGenericCodeRules({ ...input, language: "csharp" } as Parameters<
+        typeof evaluateGenericCodeRules
+      >[0]),
+  },
+];
+
 export function useProjectCodeRuleDiagnostics(input: {
   environmentId: EnvironmentId;
   cwd: string | null;
   threadKey: string;
 }) {
-  const rules = useSettings((settings) => settings.codeRules.javascriptTypeScript);
+  const codeRules = useSettings((settings) => settings.codeRules);
   const replaceProjectRuleDiagnosticCounts = useThreadEditorStore(
     (state) => state.replaceProjectRuleDiagnosticCounts,
   );
@@ -60,7 +154,16 @@ export function useProjectCodeRuleDiagnostics(input: {
   );
 
   useEffect(() => {
-    if (!input.cwd || !hasEnabledBuiltInJavaScriptTypeScriptCodeRules(rules)) {
+    if (!input.cwd) {
+      replaceProjectRuleDiagnosticCounts(input.threadKey, {});
+      return;
+    }
+
+    // Check if any language has enabled rules
+    const hasAnyEnabled = LANGUAGE_CONFIGS.some((config) =>
+      config.hasEnabled(codeRules[config.key]),
+    );
+    if (!hasAnyEnabled) {
       replaceProjectRuleDiagnosticCounts(input.threadKey, {});
       return;
     }
@@ -71,7 +174,7 @@ export function useProjectCodeRuleDiagnostics(input: {
     const timer = window.setTimeout(() => {
       const scanDirectory = async (
         relativePath: string,
-        inheritedRuleConfig: boolean,
+        inheritedSkipJsTs: boolean,
         countsByPath: Record<string, DiagnosticCounts>,
         scanState: { scannedFiles: number; truncated: boolean },
       ): Promise<void> => {
@@ -91,54 +194,61 @@ export function useProjectCodeRuleDiagnostics(input: {
           (entry) =>
             entry.kind === "file" && isBuiltInJavaScriptTypeScriptRuleConfigFile(entry.path),
         );
-        const skipRuleChecks = inheritedRuleConfig || hasRuleConfigInDirectory;
+        const skipJsTs = inheritedSkipJsTs || hasRuleConfigInDirectory;
 
-        const filesToScan = skipRuleChecks
-          ? []
-          : directory.entries.filter(
-              (entry) =>
-                entry.kind === "file" && isBuiltInJavaScriptTypeScriptRuleTarget(entry.path),
-            );
+        // Scan files for each enabled language
+        for (const config of LANGUAGE_CONFIGS) {
+          if (!config.hasEnabled(codeRules[config.key])) continue;
 
-        for (const entry of filesToScan) {
-          if (cancelled) {
-            return;
-          }
-          if (scanState.scannedFiles >= PROJECT_CODE_RULE_SCAN_MAX_FILES) {
-            scanState.truncated = true;
-            return;
-          }
+          const skipThisLanguage = config.skipIfProjectConfig && skipJsTs;
+          if (skipThisLanguage) continue;
 
-          scanState.scannedFiles += 1;
-          const readResult = await client.readFile({
-            cwd: input.cwd!,
-            relativePath: entry.path,
-          });
-          if (cancelled || readResult.kind !== "text") {
-            continue;
-          }
+          const filesToScan = directory.entries.filter(
+            (entry) => entry.kind === "file" && config.extensions.has(fileExtensionOf(entry.path)),
+          );
 
-          const activeBuffer = threadBuffersByPath[entry.path];
-          const sourceText =
-            activeBuffer?.kind === "text"
-              ? activeBuffer.draftContents
-              : (readResult.contents ?? "");
-          const diagnostics = evaluateBuiltInJavaScriptTypeScriptCodeRules({
-            relativePath: entry.path,
-            sourceText,
-            rules,
-          });
-          const counts = summarizeDiagnostics(diagnostics);
-          if (counts.errors > 0 || counts.warnings > 0) {
-            countsByPath[entry.path] = counts;
+          for (const entry of filesToScan) {
+            if (cancelled) {
+              return;
+            }
+            if (scanState.scannedFiles >= PROJECT_CODE_RULE_SCAN_MAX_FILES) {
+              scanState.truncated = true;
+              return;
+            }
+
+            scanState.scannedFiles += 1;
+            const readResult = await client.readFile({
+              cwd: input.cwd!,
+              relativePath: entry.path,
+            });
+            if (cancelled || readResult.kind !== "text") {
+              continue;
+            }
+
+            const activeBuffer = threadBuffersByPath[entry.path];
+            const sourceText =
+              activeBuffer?.kind === "text"
+                ? activeBuffer.draftContents
+                : (readResult.contents ?? "");
+
+            const diagnostics = config.evaluate({
+              relativePath: entry.path,
+              sourceText,
+              rules: codeRules[config.key],
+            });
+            const counts = summarizeDiagnostics(diagnostics);
+            if (counts.errors > 0 || counts.warnings > 0) {
+              countsByPath[entry.path] = counts;
+            }
           }
         }
 
+        // Recurse into subdirectories
         for (const entry of directory.entries) {
           if (entry.kind !== "directory" || shouldSkipDirectoryPath(entry.path)) {
             continue;
           }
-          await scanDirectory(entry.path, skipRuleChecks, countsByPath, scanState);
+          await scanDirectory(entry.path, skipJsTs, countsByPath, scanState);
           if (cancelled || scanState.truncated) {
             return;
           }
@@ -178,7 +288,7 @@ export function useProjectCodeRuleDiagnostics(input: {
     input.environmentId,
     input.threadKey,
     replaceProjectRuleDiagnosticCounts,
-    rules,
+    codeRules,
     threadBuffersByPath,
   ]);
 }

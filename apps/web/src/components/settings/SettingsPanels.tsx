@@ -507,6 +507,160 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
+interface CodeRuleGroupProps {
+  title: string;
+  description: string;
+  settings: Record<string, string | number>;
+  defaults: Record<string, string | number>;
+  open: boolean | undefined;
+  onToggle: () => void;
+  onReset: () => void;
+  onUpdate: (patch: Record<string, string | number | null>) => void;
+  rules: readonly { key: string; label: string; type: "number" | "severity" }[];
+}
+
+function CodeRuleGroup({
+  title,
+  description,
+  settings,
+  defaults,
+  open,
+  onToggle,
+  onReset,
+  onUpdate,
+  rules,
+}: CodeRuleGroupProps) {
+  const isDirty = !recordsEqual(settings, defaults);
+
+  return (
+    <div className="border-t border-border/60 first:border-t-0">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label={`Toggle ${title} code rules`}
+      >
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-h-5 items-center gap-1.5">
+            <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+              {title}
+            </h3>
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+              {isDirty ? (
+                <SettingResetButton label={`${title} code rules`} onClick={() => onReset()} />
+              ) : null}
+            </span>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground/80">{description}</p>
+        </div>
+        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+          <ChevronDownIcon
+            className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")}
+          />
+        </span>
+      </button>
+
+      <Collapsible open={open} onOpenChange={() => onToggle()}>
+        <CollapsibleContent>
+          <div className="space-y-4 border-t border-border/60 px-4 py-4 sm:px-5">
+            <div className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+              {rules
+                .filter((rule) => rule.type === "number")
+                .map((rule) => (
+                  <div key={rule.key} className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {rule.label}
+                    </div>
+                    <Input
+                      nativeInput
+                      type="number"
+                      min={1}
+                      value={settings[rule.key] as number}
+                      onChange={(event) => {
+                        const value = Number.parseInt(event.target.value, 10);
+                        if (!Number.isFinite(value) || value < 1) return;
+                        onUpdate({ [rule.key]: value });
+                      }}
+                      aria-label={`Maximum ${title} file lines`}
+                    />
+                  </div>
+                ))}
+              {rules
+                .filter((rule) => rule.type === "severity")
+                .slice(0, 1)
+                .map((rule) => (
+                  <div key={rule.key} className="space-y-1.5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {rule.label}
+                    </div>
+                    <Select
+                      value={settings[rule.key] as string}
+                      onValueChange={(value) => onUpdate({ [rule.key]: value })}
+                    >
+                      <SelectTrigger aria-label={`${rule.label} severity`}>
+                        <SelectValue>
+                          {CODE_RULE_SEVERITY_LABELS[settings[rule.key] as CodeRuleSeverity]}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
+                          <SelectItem hideIndicator key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                ))}
+            </div>
+
+            {rules.filter((rule) => rule.type === "severity").length > 1 && (
+              <div
+                className={`grid w-full gap-3 ${
+                  rules.filter((rule) => rule.type === "severity").length > 3
+                    ? "sm:grid-cols-4"
+                    : rules.filter((rule) => rule.type === "severity").length > 2
+                      ? "sm:grid-cols-3"
+                      : "sm:grid-cols-2"
+                }`}
+              >
+                {rules
+                  .filter((rule) => rule.type === "severity")
+                  .slice(1)
+                  .map((rule) => (
+                    <div key={rule.key} className="space-y-1.5">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {rule.label}
+                      </div>
+                      <Select
+                        value={settings[rule.key] as string}
+                        onValueChange={(value) => onUpdate({ [rule.key]: value })}
+                      >
+                        <SelectTrigger aria-label={`${rule.label} rule severity`}>
+                          <SelectValue>
+                            {CODE_RULE_SEVERITY_LABELS[settings[rule.key] as CodeRuleSeverity]}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectPopup align="end" alignItemWithTrigger={false}>
+                          {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
+                            <SelectItem hideIndicator key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
 export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
@@ -532,7 +686,13 @@ export function GeneralSettingsPanel() {
     ),
   });
   const [openCodeRuleDetails, setOpenCodeRuleDetails] = useState<Record<string, boolean>>({
-    javascriptTypeScript: true,
+    javascript: true,
+    typescript: true,
+    rust: false,
+    python: false,
+    solidity: false,
+    cpp: false,
+    csharp: false,
   });
   const showAdvancedLanguageServers = useMemo(() => false, []);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
@@ -1098,267 +1258,271 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection title="Code rules">
         <div className="border-t border-border/60 first:border-t-0">
-          <div className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5">
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex min-h-5 items-center gap-1.5">
-                <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-                  JavaScript and TypeScript
-                </h3>
-                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                  {!recordsEqual(
-                    settings.codeRules.javascriptTypeScript,
-                    DEFAULT_UNIFIED_SETTINGS.codeRules.javascriptTypeScript,
-                  ) ? (
-                    <SettingResetButton
-                      label="JavaScript and TypeScript code rules"
-                      onClick={() =>
-                        updateSettings({
-                          codeRules: {
-                            ...settings.codeRules,
-                            javascriptTypeScript: {
-                              ...DEFAULT_UNIFIED_SETTINGS.codeRules.javascriptTypeScript,
-                            },
-                          },
-                        })
-                      }
-                    />
-                  ) : null}
-                </span>
-              </div>
-              <p className="text-xs leading-relaxed text-muted-foreground/80">
-                App defaults for projects without ESLint or Biome rules.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-              onClick={() =>
-                setOpenCodeRuleDetails((existing) => ({
-                  ...existing,
-                  javascriptTypeScript: !existing.javascriptTypeScript,
-                }))
-              }
-              aria-expanded={openCodeRuleDetails.javascriptTypeScript}
-              aria-label="Toggle JavaScript and TypeScript code rules"
-            >
-              <ChevronDownIcon
-                className={cn(
-                  "size-4 shrink-0 transition-transform",
-                  openCodeRuleDetails.javascriptTypeScript && "rotate-180",
-                )}
-              />
-            </button>
-          </div>
-
-          <Collapsible
-            open={openCodeRuleDetails.javascriptTypeScript}
-            onOpenChange={(open) =>
+          {/* JavaScript */}
+          <CodeRuleGroup
+            title="JavaScript"
+            description="App defaults for .js, .jsx, .mjs, .cjs files without project lint rules."
+            settings={settings.codeRules.javascript}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.javascript}
+            open={openCodeRuleDetails.javascript}
+            onToggle={() =>
               setOpenCodeRuleDetails((existing) => ({
                 ...existing,
-                javascriptTypeScript: open,
+                javascript: !existing.javascript,
               }))
             }
-          >
-            <CollapsibleContent>
-              <div className="space-y-4 border-t border-border/60 px-4 py-4 sm:px-5">
-                <div className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Max file lines
-                    </div>
-                    <Input
-                      nativeInput
-                      type="number"
-                      min={1}
-                      value={settings.codeRules.javascriptTypeScript.maxFileLines}
-                      onChange={(event) => {
-                        const maxFileLines = Number.parseInt(event.target.value, 10);
-                        if (!Number.isFinite(maxFileLines) || maxFileLines < 1) {
-                          return;
-                        }
-                        updateSettings({
-                          codeRules: {
-                            ...settings.codeRules,
-                            javascriptTypeScript: {
-                              ...settings.codeRules.javascriptTypeScript,
-                              maxFileLines,
-                            },
-                          },
-                        });
-                      }}
-                      aria-label="Maximum JavaScript and TypeScript file lines"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Line rule
-                    </div>
-                    <Select
-                      value={settings.codeRules.javascriptTypeScript.maxFileLinesSeverity}
-                      onValueChange={(value) =>
-                        updateSettings({
-                          codeRules: {
-                            ...settings.codeRules,
-                            javascriptTypeScript: {
-                              ...settings.codeRules.javascriptTypeScript,
-                              maxFileLinesSeverity: value as CodeRuleSeverity,
-                            },
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Max file lines severity">
-                        <SelectValue>
-                          {
-                            CODE_RULE_SEVERITY_LABELS[
-                              settings.codeRules.javascriptTypeScript.maxFileLinesSeverity
-                            ]
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup align="end" alignItemWithTrigger={false}>
-                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
-                          <SelectItem hideIndicator key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </div>
-                </div>
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  javascript: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.javascript },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  javascript: { ...settings.codeRules.javascript, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+              { key: "noConsole", label: "No console", type: "severity" },
+            ]}
+          />
 
-                <div className="grid w-full gap-3 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Explicit any
-                    </div>
-                    <Select
-                      value={settings.codeRules.javascriptTypeScript.explicitAny}
-                      onValueChange={(value) =>
-                        updateSettings({
-                          codeRules: {
-                            ...settings.codeRules,
-                            javascriptTypeScript: {
-                              ...settings.codeRules.javascriptTypeScript,
-                              explicitAny: value as CodeRuleSeverity,
-                            },
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Explicit any rule severity">
-                        <SelectValue>
-                          {
-                            CODE_RULE_SEVERITY_LABELS[
-                              settings.codeRules.javascriptTypeScript.explicitAny
-                            ]
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup align="end" alignItemWithTrigger={false}>
-                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
-                          <SelectItem hideIndicator key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Unused imports
-                    </div>
-                    <Select
-                      value={settings.codeRules.javascriptTypeScript.unusedImports}
-                      onValueChange={(value) =>
-                        updateSettings({
-                          codeRules: {
-                            ...settings.codeRules,
-                            javascriptTypeScript: {
-                              ...settings.codeRules.javascriptTypeScript,
-                              unusedImports: value as CodeRuleSeverity,
-                            },
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Unused imports rule severity">
-                        <SelectValue>
-                          {
-                            CODE_RULE_SEVERITY_LABELS[
-                              settings.codeRules.javascriptTypeScript.unusedImports
-                            ]
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup align="end" alignItemWithTrigger={false}>
-                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
-                          <SelectItem hideIndicator key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Unused variables
-                    </div>
-                    <Select
-                      value={settings.codeRules.javascriptTypeScript.unusedVariables}
-                      onValueChange={(value) =>
-                        updateSettings({
-                          codeRules: {
-                            ...settings.codeRules,
-                            javascriptTypeScript: {
-                              ...settings.codeRules.javascriptTypeScript,
-                              unusedVariables: value as CodeRuleSeverity,
-                            },
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Unused variables rule severity">
-                        <SelectValue>
-                          {
-                            CODE_RULE_SEVERITY_LABELS[
-                              settings.codeRules.javascriptTypeScript.unusedVariables
-                            ]
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup align="end" alignItemWithTrigger={false}>
-                        {Object.entries(CODE_RULE_SEVERITY_LABELS).map(([value, label]) => (
-                          <SelectItem hideIndicator key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+          {/* TypeScript */}
+          <CodeRuleGroup
+            title="TypeScript"
+            description="App defaults for .ts, .tsx, .mts, .cts files without project lint rules."
+            settings={settings.codeRules.typescript}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.typescript}
+            open={openCodeRuleDetails.typescript}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                typescript: !existing.typescript,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  typescript: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.typescript },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  typescript: { ...settings.codeRules.typescript, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "explicitAny", label: "Explicit any", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+              { key: "noConsole", label: "No console", type: "severity" },
+            ]}
+          />
+
+          {/* Rust */}
+          <CodeRuleGroup
+            title="Rust"
+            description="App defaults for .rs files without rustfmt.toml or clippy.toml."
+            settings={settings.codeRules.rust}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.rust}
+            open={openCodeRuleDetails.rust}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                rust: !existing.rust,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  rust: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.rust },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  rust: { ...settings.codeRules.rust, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+              { key: "unwrapUsage", label: "Unwrap usage", type: "severity" },
+            ]}
+          />
+
+          {/* Python */}
+          <CodeRuleGroup
+            title="Python"
+            description="App defaults for .py files."
+            settings={settings.codeRules.python}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.python}
+            open={openCodeRuleDetails.python}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                python: !existing.python,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  python: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.python },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  python: { ...settings.codeRules.python, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+              { key: "bareExcept", label: "Bare except", type: "severity" },
+            ]}
+          />
+
+          {/* Solidity */}
+          <CodeRuleGroup
+            title="Solidity"
+            description="App defaults for .sol files."
+            settings={settings.codeRules.solidity}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.solidity}
+            open={openCodeRuleDetails.solidity}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                solidity: !existing.solidity,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  solidity: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.solidity },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  solidity: { ...settings.codeRules.solidity, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+              { key: "txOriginUsage", label: "Tx origin usage", type: "severity" },
+            ]}
+          />
+
+          {/* C and C++ */}
+          <CodeRuleGroup
+            title="C and C++"
+            description="App defaults for .c, .cpp, .h files."
+            settings={settings.codeRules.cpp}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.cpp}
+            open={openCodeRuleDetails.cpp}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                cpp: !existing.cpp,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  cpp: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.cpp },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  cpp: { ...settings.codeRules.cpp, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+            ]}
+          />
+
+          {/* C# */}
+          <CodeRuleGroup
+            title="C#"
+            description="App defaults for .cs files."
+            settings={settings.codeRules.csharp}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.csharp}
+            open={openCodeRuleDetails.csharp}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                csharp: !existing.csharp,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  csharp: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.csharp },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  csharp: { ...settings.codeRules.csharp, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
+            ]}
+          />
         </div>
-
-        {CURATED_EDITOR_LANGUAGES.filter(
-          (language) => language.id !== "javascript" && language.id !== "typescript",
-        ).map((language) => (
-          <div key={language.id} className="border-t border-border/60 px-4 py-4 sm:px-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 space-y-1">
-                <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-                  {language.label}
-                </h3>
-                <p className="text-xs leading-relaxed text-muted-foreground/80">
-                  Built-in rules are not configured for this language yet.
-                </p>
-              </div>
-              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground/30" />
-            </div>
-          </div>
-        ))}
 
         <SettingsRow
           title="Custom file associations"
