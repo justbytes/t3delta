@@ -101,6 +101,10 @@ const SERVER_DESCRIPTORS: Record<string, ServerDescriptor> = {
     commandCandidates: ["vscode-css-language-server", "css-languageserver"],
     args: ["--stdio"],
   },
+  gopls: {
+    commandCandidates: ["gopls"],
+    args: [],
+  },
 };
 
 const TYPESCRIPT_LIKE_EXTENSIONS = new Set([
@@ -121,6 +125,7 @@ const JAVA_EXTENSIONS = new Set([".java"]);
 const CSHARP_EXTENSIONS = new Set([".cs", ".csx"]);
 const HTML_EXTENSIONS = new Set([".html", ".htm"]);
 const CSS_EXTENSIONS = new Set([".css"]);
+const GO_EXTENSIONS = new Set([".go"]);
 const BUNDLED_LANGUAGE_SERVER_ROOTS = [
   fileURLToPath(new URL("../../../", import.meta.url)),
   fileURLToPath(new URL("../../../../../", import.meta.url)),
@@ -497,6 +502,20 @@ async function detectWorkspaceRootForServer(input: {
     ]);
     if (cssProjectPath) {
       return NodePath.dirname(cssProjectPath);
+    }
+
+    return input.cwd;
+  }
+
+  if (input.serverId === "gopls") {
+    if (!GO_EXTENSIONS.has(extension)) {
+      return input.cwd;
+    }
+
+    const startDirectory = NodePath.dirname(input.absolutePath);
+    const goProjectPath = await findUpwards(startDirectory, input.cwd, ["go.mod", "go.work"]);
+    if (goProjectPath) {
+      return NodePath.dirname(goProjectPath);
     }
 
     return input.cwd;

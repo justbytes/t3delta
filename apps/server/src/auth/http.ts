@@ -85,6 +85,7 @@ export const authBootstrapRouteLayer = HttpRouter.add(
         httpOnly: true,
         path: "/",
         sameSite: "lax",
+        secure: true,
       }),
     );
   }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),

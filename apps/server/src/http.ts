@@ -30,6 +30,24 @@ const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" vi
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy":
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), fullscreen=(self)",
+} as const;
+
+function withSecurityHeaders(
+  response: HttpServerResponse.HttpServerResponse,
+): HttpServerResponse.HttpServerResponse {
+  let secured = response;
+  for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
+    secured = HttpServerResponse.setHeader(secured, header, value);
+  }
+  return secured;
+}
+
 export const browserApiCorsLayer = HttpRouter.cors({
   allowedMethods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["authorization", "b3", "traceparent", "content-type"],

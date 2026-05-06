@@ -14,6 +14,7 @@ import {
   evaluateGenericCodeRules,
   evaluateJavaScriptCodeRules,
   evaluateTypeScriptCodeRules,
+  GO_EXTENSIONS,
   hasEnabledGenericCodeRules,
   hasEnabledJavaScriptCodeRules,
   hasEnabledTypeScriptCodeRules,
@@ -332,11 +333,12 @@ async function runBuiltInTypeScriptCodeRules(
 async function runBuiltInMaxFileLinesCodeRules(
   context: DiagnosticsContext,
   settings: ServerSettings,
-  language: "rust" | "python" | "solidity" | "cpp" | "csharp",
+  language: "rust" | "python" | "go" | "solidity" | "cpp" | "csharp",
 ): Promise<DiagnosticsAdapterOutcome> {
   const extensionSets: Record<typeof language, Set<string>> = {
     rust: RUST_EXTENSIONS,
     python: PYTHON_EXTENSIONS,
+    go: GO_EXTENSIONS,
     solidity: SOLIDITY_EXTENSIONS,
     cpp: CPP_EXTENSIONS,
     csharp: CSHARP_EXTENSIONS,
@@ -824,6 +826,7 @@ async function runAdapters(
     runBuiltInTypeScriptCodeRules(context, settings),
     runBuiltInMaxFileLinesCodeRules(context, settings, "rust"),
     runBuiltInMaxFileLinesCodeRules(context, settings, "python"),
+    runBuiltInMaxFileLinesCodeRules(context, settings, "go"),
     runBuiltInMaxFileLinesCodeRules(context, settings, "solidity"),
     runBuiltInMaxFileLinesCodeRules(context, settings, "cpp"),
     runBuiltInMaxFileLinesCodeRules(context, settings, "csharp"),

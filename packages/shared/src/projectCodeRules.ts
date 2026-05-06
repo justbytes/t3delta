@@ -23,6 +23,8 @@ export const RUST_EXTENSIONS = new Set(["rs"]);
 
 export const PYTHON_EXTENSIONS = new Set(["py", "pyw", "pyi"]);
 
+export const GO_EXTENSIONS = new Set(["go"]);
+
 export const SOLIDITY_EXTENSIONS = new Set(["sol"]);
 
 export const CPP_EXTENSIONS = new Set(["c", "cc", "cpp", "cxx", "h", "hpp", "hxx"]);
@@ -328,6 +330,52 @@ function extractCsharpVariableNames(line: string): readonly string[] {
   return [match[1]];
 }
 
+function extractGoImportedNames(line: string): readonly string[] {
+  const trimmedLine = line.trim();
+  const names = new Set<string>();
+
+  // import "fmt"
+  const simpleImport = /^import\s+"([^"]+)"/.exec(trimmedLine);
+  if (simpleImport?.[1]) {
+    const pkg = simpleImport[1].split("/").at(-1);
+    if (pkg) names.add(pkg);
+  }
+
+  // import ( "fmt" "os" )
+  const multiImport = /^import\s+\(/.exec(trimmedLine);
+  if (multiImport) {
+    // Multi-line imports handled by scanning the block in the caller
+    // This is a simplified single-line approach
+    const quoted = trimmedLine.matchAll(/"([^"]+)"/g);
+    for (const m of quoted) {
+      const pkg = m[1]?.split("/").at(-1);
+      if (pkg) names.add(pkg);
+    }
+  }
+
+  // import alias "fmt"
+  const aliasImport = /^import\s+([A-Za-z_]\w*)\s+"([^"]+)"/.exec(trimmedLine);
+  if (aliasImport?.[1]) {
+    names.add(aliasImport[1]);
+  }
+
+  return [...names];
+}
+
+function extractGoVariableNames(line: string): readonly string[] {
+  const trimmedLine = line.trim();
+  // var x int = 1; x := 1; const x = 1
+  const names = new Set<string>();
+
+  const varMatch = /\b(?:var|const)\s+([A-Za-z_]\w*)\b/.exec(trimmedLine);
+  if (varMatch?.[1] && !varMatch[1].startsWith("_")) names.add(varMatch[1]);
+
+  const shortVarMatch = /\b([A-Za-z_]\w*)\s*:=\s*/.exec(trimmedLine);
+  if (shortVarMatch?.[1] && !shortVarMatch[1].startsWith("_")) names.add(shortVarMatch[1]);
+
+  return [...names];
+}
+
 // ── Language rule configurations ─────────────────────────────────
 
 interface LanguageRuleConfig {
@@ -459,6 +507,13 @@ const LANGUAGE_RULE_CONFIGS: Record<string, LanguageRuleConfig> = {
     extractImports: extractCsharpImportedNames,
     extractVariables: extractCsharpVariableNames,
     importMessage: (name) => `Using directive \`${name}\` is not used in this file.`,
+    variableMessage: (name) => `Variable \`${name}\` is declared but never used in this file.`,
+  },
+  go: {
+    extensions: GO_EXTENSIONS,
+    extractImports: extractGoImportedNames,
+    extractVariables: extractGoVariableNames,
+    importMessage: (name) => `Imported package \`${name}\` is not used in this file.`,
     variableMessage: (name) => `Variable \`${name}\` is declared but never used in this file.`,
   },
 };

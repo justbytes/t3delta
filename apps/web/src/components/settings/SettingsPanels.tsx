@@ -534,32 +534,34 @@ function CodeRuleGroup({
 
   return (
     <div className="border-t border-border/60 first:border-t-0">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-label={`Toggle ${title} code rules`}
-      >
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-              {title}
-            </h3>
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-              {isDirty ? (
-                <SettingResetButton label={`${title} code rules`} onClick={() => onReset()} />
-              ) : null}
-            </span>
+      <div className="flex w-full items-center justify-between gap-3 px-4 py-4 sm:px-5">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-label={`Toggle ${title} code rules`}
+        >
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex min-h-5 items-center gap-1.5">
+              <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+                {title}
+              </h3>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground/80">{description}</p>
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground/80">{description}</p>
-        </div>
-        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
-          <ChevronDownIcon
-            className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")}
-          />
+          <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+            <ChevronDownIcon
+              className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")}
+            />
+          </span>
+        </button>
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+          {isDirty ? (
+            <SettingResetButton label={`${title} code rules`} onClick={() => onReset()} />
+          ) : null}
         </span>
-      </button>
+      </div>
 
       <Collapsible open={open} onOpenChange={() => onToggle()}>
         <CollapsibleContent>
@@ -686,10 +688,11 @@ export function GeneralSettingsPanel() {
     ),
   });
   const [openCodeRuleDetails, setOpenCodeRuleDetails] = useState<Record<string, boolean>>({
-    javascript: true,
-    typescript: true,
+    javascript: false,
+    typescript: false,
     rust: false,
     python: false,
+    go: false,
     solidity: false,
     cpp: false,
     csharp: false,
@@ -1408,6 +1411,43 @@ export function GeneralSettingsPanel() {
               { key: "unusedImports", label: "Unused imports", type: "severity" },
               { key: "unusedVariables", label: "Unused variables", type: "severity" },
               { key: "bareExcept", label: "Bare except", type: "severity" },
+            ]}
+          />
+
+          {/* Go */}
+          <CodeRuleGroup
+            title="Go"
+            description="App defaults for .go files without project lint rules."
+            settings={settings.codeRules.go}
+            defaults={DEFAULT_UNIFIED_SETTINGS.codeRules.go}
+            open={openCodeRuleDetails.go}
+            onToggle={() =>
+              setOpenCodeRuleDetails((existing) => ({
+                ...existing,
+                go: !existing.go,
+              }))
+            }
+            onReset={() =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  go: { ...DEFAULT_UNIFIED_SETTINGS.codeRules.go },
+                },
+              })
+            }
+            onUpdate={(patch) =>
+              updateSettings({
+                codeRules: {
+                  ...settings.codeRules,
+                  go: { ...settings.codeRules.go, ...patch },
+                },
+              })
+            }
+            rules={[
+              { key: "maxFileLines", label: "Max file lines", type: "number" },
+              { key: "maxFileLinesSeverity", label: "Line rule", type: "severity" },
+              { key: "unusedImports", label: "Unused imports", type: "severity" },
+              { key: "unusedVariables", label: "Unused variables", type: "severity" },
             ]}
           />
 

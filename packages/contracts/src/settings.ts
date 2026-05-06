@@ -36,6 +36,7 @@ export const EditorLanguageId = Schema.Literals([
   "typescript",
   "rust",
   "python",
+  "go",
   "solidity",
   "java",
   "csharp",
@@ -58,6 +59,7 @@ export const DEFAULT_EDITOR_ENABLED_LANGUAGE_IDS = [
   "typescript",
   "rust",
   "python",
+  "go",
   "solidity",
   "java",
   "csharp",
@@ -145,6 +147,16 @@ export const SolidityCodeRules = Schema.Struct({
 });
 export type SolidityCodeRules = typeof SolidityCodeRules.Type;
 
+export const GoCodeRules = Schema.Struct({
+  maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+  maxFileLinesSeverity: CodeRuleSeverity.pipe(
+    Schema.withDecodingDefault(Effect.succeed("warning")),
+  ),
+  unusedImports: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+  unusedVariables: CodeRuleSeverity.pipe(Schema.withDecodingDefault(Effect.succeed("warning"))),
+});
+export type GoCodeRules = typeof GoCodeRules.Type;
+
 export const CppCodeRules = Schema.Struct({
   maxFileLines: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(500))),
   maxFileLinesSeverity: CodeRuleSeverity.pipe(
@@ -170,6 +182,7 @@ export const CodeRulesSettings = Schema.Struct({
   typescript: TypeScriptCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   rust: RustCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   python: PythonCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  go: GoCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   solidity: SolidityCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   cpp: CppCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   csharp: CsharpCodeRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -195,6 +208,10 @@ export const DEFAULT_EDITOR_LANGUAGE_SERVER_PREFERENCES: Record<
   python: {
     enabled: true,
     serverId: "pyright-langserver",
+  },
+  go: {
+    enabled: true,
+    serverId: "gopls",
   },
   solidity: {
     enabled: true,
@@ -323,6 +340,13 @@ export const PythonLanguageServerSettings = Schema.Struct({
 });
 export type PythonLanguageServerSettings = typeof PythonLanguageServerSettings.Type;
 
+export const GoLanguageServerSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  binaryPath: makeBinaryPathSetting("gopls"),
+  launchArgs: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+});
+export type GoLanguageServerSettings = typeof GoLanguageServerSettings.Type;
+
 export const SolidityLanguageServerSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   binaryPath: makeBinaryPathSetting("nomicfoundation-solidity-language-server"),
@@ -394,6 +418,7 @@ export const ServerSettings = Schema.Struct({
     ),
     rust: RustLanguageServerSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     python: PythonLanguageServerSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    go: GoLanguageServerSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     solidity: SolidityLanguageServerSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cpp: CppLanguageServerSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     java: JavaLanguageServerSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -487,6 +512,12 @@ const PythonLanguageServerSettingsPatch = Schema.Struct({
   launchArgs: Schema.optionalKey(Schema.String),
 });
 
+const GoLanguageServerSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  launchArgs: Schema.optionalKey(Schema.String),
+});
+
 const SolidityLanguageServerSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
@@ -558,6 +589,13 @@ const PythonCodeRulesPatch = Schema.Struct({
   bareExcept: Schema.optionalKey(CodeRuleSeverity),
 });
 
+const GoCodeRulesPatch = Schema.Struct({
+  maxFileLines: Schema.optionalKey(PositiveInt),
+  maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
+  unusedImports: Schema.optionalKey(CodeRuleSeverity),
+  unusedVariables: Schema.optionalKey(CodeRuleSeverity),
+});
+
 const SolidityCodeRulesPatch = Schema.Struct({
   maxFileLines: Schema.optionalKey(PositiveInt),
   maxFileLinesSeverity: Schema.optionalKey(CodeRuleSeverity),
@@ -585,6 +623,7 @@ const CodeRulesSettingsPatch = Schema.Struct({
   typescript: Schema.optionalKey(TypeScriptCodeRulesPatch),
   rust: Schema.optionalKey(RustCodeRulesPatch),
   python: Schema.optionalKey(PythonCodeRulesPatch),
+  go: Schema.optionalKey(GoCodeRulesPatch),
   solidity: Schema.optionalKey(SolidityCodeRulesPatch),
   cpp: Schema.optionalKey(CppCodeRulesPatch),
   csharp: Schema.optionalKey(CsharpCodeRulesPatch),
@@ -613,6 +652,7 @@ export const ServerSettingsPatch = Schema.Struct({
       typescript: Schema.optionalKey(TypeScriptLanguageServerSettingsPatch),
       rust: Schema.optionalKey(RustLanguageServerSettingsPatch),
       python: Schema.optionalKey(PythonLanguageServerSettingsPatch),
+      go: Schema.optionalKey(GoLanguageServerSettingsPatch),
       solidity: Schema.optionalKey(SolidityLanguageServerSettingsPatch),
       cpp: Schema.optionalKey(CppLanguageServerSettingsPatch),
       java: Schema.optionalKey(JavaLanguageServerSettingsPatch),
