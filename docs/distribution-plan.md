@@ -5,7 +5,7 @@
 Make T3 Delta installable by end users through two primary channels:
 
 1. **Desktop app** — Downloadable via GitHub Releases (macOS/Windows/Linux)
-2. **CLI tool** — Installable via `npm install -g delta` or `npx delta`
+2. **CLI tool** — Installable via `npm install -g t3delta` or `npx t3delta`
 
 ## Current State
 
@@ -19,7 +19,7 @@ Make T3 Delta installable by end users through two primary channels:
 
 ### CLI tool (`apps/server`)
 
-- **Package name**: `delta` (npm package)
+- **Package name**: `t3delta` (npm package)
 - **Binary**: `./dist/bin.mjs` (mapped to `delta` command)
 - **Build script**: `bun scripts/cli.ts build` — runs `tsdown` + copies `apps/web/dist` into `dist/client`
 - **Publish script**: `bun scripts/cli.ts publish` — backs up package.json, resolves catalog deps, runs `npm publish`
@@ -35,7 +35,7 @@ Make T3 Delta installable by end users through two primary channels:
 - [ ] Run `bun scripts/cli.ts publish --dry-run` to validate the package
 - [ ] Create npm account / login if needed
 - [ ] Run `bun scripts/cli.ts publish --tag latest --access public`
-- [ ] Test `npm install -g delta` and `npx delta` on a clean machine
+- [ ] Test `npm install -g t3delta` and `npx t3delta` on a clean machine
 
 ### Phase 2: Desktop app GitHub Releases
 
@@ -54,14 +54,14 @@ Make T3 Delta installable by end users through two primary channels:
 
 ### Phase 3: Documentation & Landing
 
-- [ ] Update README with install instructions (`npm install -g delta` + download links)
+- [ ] Update README with install instructions (`npm install -g t3delta` + download links)
 - [ ] Add `docs/installation.md` with per-platform guides
 - [ ] Ensure marketing site (`apps/marketing`) has download buttons
 - [ ] Add `CHANGELOG.md` starting from `0.1.0`
 
 ## Open Questions
 
-1. **npm scope**: The server package is named `delta` (unscoped). Is this the final name, or should it be `@t3delta/cli`?
+1. **npm scope**: The server package is named `t3delta` (unscoped). Is this the final name, or should it be `@t3delta/cli`?
 2. **Desktop versioning**: Should desktop and CLI share the same version number, or version independently?
 3. **Codesigning**: macOS notarization + Windows code signing — do you have Apple Developer ID / Windows cert?
 4. **Linux packaging**: AppImage is easiest; deb/rpm require more CI setup. Preference?

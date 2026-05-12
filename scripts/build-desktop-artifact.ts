@@ -510,10 +510,7 @@ function resolveGitHubPublishConfig(updateChannel: "latest" | "nightly"):
       readonly channel?: "nightly";
     }
   | undefined {
-  const rawRepo =
-    process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
-    process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
+  const rawRepo = process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY?.trim() || "justbytes/t3delta";
   if (!rawRepo) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");

@@ -208,6 +208,7 @@ jobs:
       - name: Build desktop artifact
         shell: bash
         env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: justbytes/t3delta
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -344,8 +345,11 @@ jobs:
       - name: Build CLI package
         run: bun run build --filter=@t3delta/web --filter=delta
 
+      - name: Smoke CLI npm package
+        run: node apps/server/scripts/cli.ts publish --dry-run --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --app-version "${{ needs.preflight.outputs.version }}" --verbose
+
       - name: Publish CLI package
-        run: node apps/server/scripts/cli.ts publish --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --app-version "${{ needs.preflight.outputs.version }}" --verbose
+        run: node apps/server/scripts/cli.ts publish --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --app-version "${{ needs.preflight.outputs.version }}" --provenance --verbose
 
   release:
     name: Publish GitHub Release
@@ -464,31 +468,12 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
-      - id: app_token
-        name: Mint release app token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ steps.app_token.outputs.token }}
           persist-credentials: true
-
-      - id: app_bot
-        name: Resolve GitHub App bot identity
-        env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token }}
-          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
-        run: |
-          user_id="$(gh api "/users/${APP_SLUG}[bot]" --jq .id)"
-          echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
-          echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -528,9 +513,129 @@ jobs:
             exit 0
           fi
 
-          git config user.name "${{ steps.app_bot.outputs.name }}"
-          git config user.email "${{ steps.app_bot.outputs.email }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json bun.lock
           git commit -m "chore(release): prepare $RELEASE_TAG"
           git push origin HEAD:main
+
+  package_managers:
+    name: Publish package manager manifests
+    if: needs.preflight.outputs.release_channel == 'stable'
+    needs: [preflight, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Generate package manager manifests
+        run: |
+          node scripts/update-install-manifests.ts \
+            --version "${{ needs.preflight.outputs.version }}" \
+            --asset-dir release-assets \
+            --output-root "$RUNNER_TEMP/install-manifests" \
+            --repository justbytes/t3delta
+
+      - name: Require package manager publishing secrets
+        env:
+          HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          missing=()
+          [[ -n "$HOMEBREW_TAP_REPOSITORY" ]] || missing+=(HOMEBREW_TAP_REPOSITORY)
+          [[ -n "$HOMEBREW_TAP_TOKEN" ]] || missing+=(HOMEBREW_TAP_TOKEN)
+          [[ -n "$WINGET_GITHUB_TOKEN" ]] || missing+=(WINGET_GITHUB_TOKEN)
+          [[ -n "$AUR_SSH_PRIVATE_KEY" ]] || missing+=(AUR_SSH_PRIVATE_KEY)
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing package manager publishing config: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Publish Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh repo clone "$HOMEBREW_TAP_REPOSITORY" "$RUNNER_TEMP/homebrew-tap"
+          mkdir -p "$RUNNER_TEMP/homebrew-tap/Casks"
+          cp "$RUNNER_TEMP/install-manifests/packaging/homebrew/Casks/t3-delta.rb" "$RUNNER_TEMP/homebrew-tap/Casks/t3-delta.rb"
+          cd "$RUNNER_TEMP/homebrew-tap"
+          if git diff --quiet -- Casks/t3-delta.rb; then
+            echo "Homebrew cask already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/t3-delta.rb
+          git commit -m "t3-delta $RELEASE_TAG"
+          git push
+
+      - name: Submit Winget manifests
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          viewer="$(gh api user --jq .login)"
+          gh repo fork microsoft/winget-pkgs --clone=false --remote=false || true
+          gh repo clone "$viewer/winget-pkgs" "$RUNNER_TEMP/winget-pkgs" -- --depth 1
+          winget_dir="$RUNNER_TEMP/winget-pkgs/manifests/b/Bytes/T3Delta/$RELEASE_VERSION"
+          mkdir -p "$winget_dir"
+          cp "$RUNNER_TEMP/install-manifests/packaging/winget/manifests/b/Bytes/T3Delta/$RELEASE_VERSION/"*.yaml "$winget_dir/"
+          cd "$RUNNER_TEMP/winget-pkgs"
+          git checkout -b "bytes-t3delta-$RELEASE_VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "manifests/b/Bytes/T3Delta/$RELEASE_VERSION"
+          git commit -m "New version: Bytes.T3Delta version $RELEASE_VERSION"
+          git push --set-upstream origin "bytes-t3delta-$RELEASE_VERSION"
+          gh pr create \
+            --repo microsoft/winget-pkgs \
+            --head "$viewer:bytes-t3delta-$RELEASE_VERSION" \
+            --title "New version: Bytes.T3Delta version $RELEASE_VERSION" \
+            --body "Automated T3 Delta release manifest update for justbytes/t3delta $RELEASE_VERSION."
+
+      - name: Publish AUR package
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes' git clone ssh://aur@aur.archlinux.org/t3delta-bin.git "$RUNNER_TEMP/aur-t3delta-bin"
+          cp "$RUNNER_TEMP/install-manifests/packaging/aur/t3delta-bin/PKGBUILD" "$RUNNER_TEMP/aur-t3delta-bin/PKGBUILD"
+          cp "$RUNNER_TEMP/install-manifests/packaging/aur/t3delta-bin/.SRCINFO" "$RUNNER_TEMP/aur-t3delta-bin/.SRCINFO"
+          cd "$RUNNER_TEMP/aur-t3delta-bin"
+          if git diff --quiet -- PKGBUILD .SRCINFO; then
+            echo "AUR package already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "t3delta-bin $RELEASE_TAG"
+          GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes' git push

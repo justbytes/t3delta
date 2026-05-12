@@ -14,7 +14,14 @@ T3 Delta is a minimal web GUI for coding agents (currently Codex and Claude, mor
 ### Run without installing
 
 ```bash
-npx delta
+npx t3delta
+```
+
+### Install the CLI
+
+```bash
+npm install -g t3delta
+delta
 ```
 
 ### Desktop app

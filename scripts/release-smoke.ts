@@ -145,6 +145,23 @@ nsis:
 
   return { arm64Path, x64Path };
 }
+
+function writeInstallManifestAssetFixtures(targetRoot: string): string {
+  const assetDirectory = resolve(targetRoot, "install-assets");
+  mkdirSync(assetDirectory, { recursive: true });
+
+  for (const filename of [
+    "T3-Delta-9.9.9-smoke.0-arm64.dmg",
+    "T3-Delta-9.9.9-smoke.0-x64.dmg",
+    "T3-Delta-9.9.9-smoke.0-x64.exe",
+    "T3-Delta-9.9.9-smoke.0-x64.AppImage",
+  ]) {
+    writeFileSync(resolve(assetDirectory, filename), `fixture:${filename}`);
+  }
+
+  return assetDirectory;
+}
+
 function assertContains(haystack: string, needle: string, message: string): void {
   if (!haystack.includes(needle)) {
     throw new Error(message);
@@ -370,6 +387,77 @@ try {
   assertExists(
     winDebugX64Path,
     "Windows release smoke unexpectedly removed the x64 builder debug fixture.",
+  );
+
+  const installAssetDir = writeInstallManifestAssetFixtures(tempRoot);
+  const installManifestOutputRoot = resolve(tempRoot, "install-manifests");
+  execFileSync(
+    process.execPath,
+    [
+      resolve(repoRoot, "scripts/update-install-manifests.ts"),
+      "--version",
+      "9.9.9-smoke.0",
+      "--asset-dir",
+      installAssetDir,
+      "--output-root",
+      installManifestOutputRoot,
+      "--repository",
+      "justbytes/t3delta",
+    ],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+    },
+  );
+  execFileSync(
+    process.execPath,
+    [
+      resolve(repoRoot, "scripts/update-install-manifests.ts"),
+      "--version",
+      "9.9.9-smoke.0",
+      "--asset-dir",
+      installAssetDir,
+      "--output-root",
+      installManifestOutputRoot,
+      "--repository",
+      "justbytes/t3delta",
+      "--check",
+    ],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+    },
+  );
+
+  const homebrewManifest = readFileSync(
+    resolve(installManifestOutputRoot, "packaging/homebrew/Casks/t3-delta.rb"),
+    "utf8",
+  );
+  assertContains(
+    homebrewManifest,
+    "github.com/justbytes/t3delta",
+    "Homebrew manifest must use the justbytes/t3delta release repository.",
+  );
+  const wingetManifest = readFileSync(
+    resolve(
+      installManifestOutputRoot,
+      "packaging/winget/manifests/b/Bytes/T3Delta/9.9.9-smoke.0/Bytes.T3Delta.installer.yaml",
+    ),
+    "utf8",
+  );
+  assertContains(
+    wingetManifest,
+    "https://github.com/justbytes/t3delta/releases/download/v9.9.9-smoke.0/T3-Delta-9.9.9-smoke.0-x64.exe",
+    "Winget manifest must point at the justbytes/t3delta Windows release asset.",
+  );
+  const aurPkgbuild = readFileSync(
+    resolve(installManifestOutputRoot, "packaging/aur/t3delta-bin/PKGBUILD"),
+    "utf8",
+  );
+  assertContains(
+    aurPkgbuild,
+    "https://github.com/justbytes/t3delta/releases/download/v9.9.9-smoke.0/T3-Delta-9.9.9-smoke.0-x64.AppImage",
+    "AUR PKGBUILD must point at the justbytes/t3delta Linux release asset.",
   );
 
   console.log("Release smoke checks passed.");

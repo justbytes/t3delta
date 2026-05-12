@@ -21,7 +21,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
-- Publishes the CLI package (`apps/server`, npm package `t3`) with OIDC trusted publishing from the same workflow file:
+- Publishes the CLI package (`apps/server`, npm package `t3delta`) with OIDC trusted publishing from the same workflow file:
   - stable releases publish npm dist-tag `latest`
   - nightly releases publish npm dist-tag `nightly`
 - Signing is optional and auto-detected per platform from secrets.
@@ -39,7 +39,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - `make_latest` is always `false`
 - Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
 - Publishes Electron auto-update metadata to the dedicated `nightly` updater channel, so desktop users can opt into that track independently from stable.
-- Publishes the CLI package (`apps/server`, npm package `t3`) to the `nightly` npm dist-tag using the same nightly version.
+- Publishes the CLI package (`apps/server`, npm package `t3delta`) to the `nightly` npm dist-tag using the same nightly version.
 - Does not commit version bumps back to `main`.
 
 ## Desktop auto-update notes
@@ -51,8 +51,8 @@ This document covers the unified release workflow for stable and nightly desktop
   - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install.
 - Provider: GitHub Releases (`provider: github`) configured at build time.
 - Repository slug source:
-  - `T3CODE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
-  - otherwise `GITHUB_REPOSITORY` from GitHub Actions.
+  - Release builds set `T3CODE_DESKTOP_UPDATE_REPOSITORY=justbytes/t3delta`.
+  - Local builds may still override with `T3CODE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`).
 - Temporary private-repo auth workaround:
   - set `T3CODE_DESKTOP_UPDATE_GITHUB_TOKEN` (or `GH_TOKEN`) in the desktop app runtime environment.
   - the app forwards it as an `Authorization: Bearer <token>` request header for updater HTTP calls.
@@ -71,7 +71,7 @@ the package version to the release tag version.
 
 Checklist:
 
-1. Confirm npm org/user owns package `t3` (or rename package first if needed).
+1. Confirm npm org/user owns package `t3delta`.
 2. In npm package settings, configure Trusted Publisher:
    - Provider: GitHub Actions
    - Repository: this repo
@@ -164,7 +164,20 @@ Checklist:
    - release job uploads expected files
 6. Smoke test downloaded artifacts.
 
-## 5) Troubleshooting
+## 5) Package manager publishing setup
+
+Stable releases publish package-manager manifests from the `justbytes/t3delta`
+GitHub Release assets. Configure these before advertising package-manager
+commands:
+
+- GitHub variable `HOMEBREW_TAP_REPOSITORY`: the tap repo, for example `justbytes/homebrew-tap`.
+- Secret `HOMEBREW_TAP_TOKEN`: token with write access to that tap.
+- Secret `WINGET_GITHUB_TOKEN`: token that can fork `microsoft/winget-pkgs` and open PRs.
+- Secret `AUR_SSH_PRIVATE_KEY`: deploy key for `ssh://aur@aur.archlinux.org/t3delta-bin.git`.
+
+The release workflow fails stable releases if any of these are missing.
+
+## 6) Troubleshooting
 
 - macOS build unsigned when expected signed:
   - Check all Apple secrets are populated and non-empty.
@@ -173,3 +186,5 @@ Checklist:
 - Build fails with signing error:
   - Retry with secrets removed to confirm unsigned path still works.
   - Re-check certificate/profile names and tenant/client credentials.
+- Package-manager publishing fails:
+  - Re-check the package-manager secrets above and verify the release assets exist in `justbytes/t3delta`.
