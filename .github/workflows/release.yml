@@ -626,7 +626,11 @@ jobs:
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-          GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes' git clone ssh://aur@aur.archlinux.org/t3delta-bin.git "$RUNNER_TEMP/aur-t3delta-bin"
+          if ! GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes' git clone ssh://aur@aur.archlinux.org/t3delta-bin.git "$RUNNER_TEMP/aur-t3delta-bin"; then
+            mkdir -p "$RUNNER_TEMP/aur-t3delta-bin"
+            git -C "$RUNNER_TEMP/aur-t3delta-bin" init
+            git -C "$RUNNER_TEMP/aur-t3delta-bin" remote add origin ssh://aur@aur.archlinux.org/t3delta-bin.git
+          fi
           cp "$RUNNER_TEMP/install-manifests/packaging/aur/t3delta-bin/PKGBUILD" "$RUNNER_TEMP/aur-t3delta-bin/PKGBUILD"
           cp "$RUNNER_TEMP/install-manifests/packaging/aur/t3delta-bin/.SRCINFO" "$RUNNER_TEMP/aur-t3delta-bin/.SRCINFO"
           cd "$RUNNER_TEMP/aur-t3delta-bin"
