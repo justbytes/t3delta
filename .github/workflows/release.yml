@@ -342,13 +342,26 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
+      - id: cli_package
+        name: Check existing CLI package version
+        run: |
+          if npm view "t3delta@${{ needs.preflight.outputs.version }}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "t3delta@${{ needs.preflight.outputs.version }} is already published; skipping npm publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build CLI package
+        if: steps.cli_package.outputs.exists != 'true'
         run: bun run build --filter=@t3delta/web --filter=t3delta
 
       - name: Smoke CLI npm package
+        if: steps.cli_package.outputs.exists != 'true'
         run: node apps/server/scripts/cli.ts publish --dry-run --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --app-version "${{ needs.preflight.outputs.version }}" --verbose
 
       - name: Publish CLI package
+        if: steps.cli_package.outputs.exists != 'true'
         run: node apps/server/scripts/cli.ts publish --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --app-version "${{ needs.preflight.outputs.version }}" --provenance --verbose
 
   release:
