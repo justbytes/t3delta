@@ -343,7 +343,7 @@ jobs:
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
       - name: Build CLI package
-        run: bun run build --filter=@t3delta/web --filter=delta
+        run: bun run build --filter=@t3delta/web --filter=t3delta
 
       - name: Smoke CLI npm package
         run: node apps/server/scripts/cli.ts publish --dry-run --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --app-version "${{ needs.preflight.outputs.version }}" --verbose

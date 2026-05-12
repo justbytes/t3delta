@@ -4,11 +4,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/justbytes/t3delta",
+    "url": "git+https://github.com/justbytes/t3delta.git",
     "directory": "apps/server"
   },
   "bin": {
-    "delta": "./dist/bin.mjs"
+    "delta": "dist/bin.mjs"
   },
   "files": [
     "dist"

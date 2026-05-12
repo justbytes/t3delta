@@ -67,7 +67,8 @@ const applyPublishIconOverrides = Effect.fn("applyPublishIconOverrides")(functio
   for (const override of PUBLISH_ICON_OVERRIDES) {
     const sourcePath = path.join(repoRoot, override.sourceRelativePath);
     const targetPath = path.join(serverDir, override.targetRelativePath);
-    const backupPath = `${targetPath}.publish-bak`;
+    const safeBackupName = override.targetRelativePath.replaceAll(/[^A-Za-z0-9_.-]/g, "_");
+    const backupPath = path.join(serverDir, `.publish-bak-${safeBackupName}`);
 
     if (!(yield* fs.exists(sourcePath))) {
       return yield* new CliError({
@@ -179,6 +180,7 @@ const publishCmd = Command.make(
     tag: Flag.string("tag").pipe(Flag.withDefault("latest")),
     access: Flag.string("access").pipe(Flag.withDefault("public")),
     appVersion: Flag.string("app-version").pipe(Flag.optional),
+    otp: Flag.string("otp").pipe(Flag.optional),
     provenance: Flag.boolean("provenance").pipe(Flag.withDefault(false)),
     dryRun: Flag.boolean("dry-run").pipe(Flag.withDefault(false)),
     verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
@@ -238,6 +240,7 @@ const publishCmd = Command.make(
         () =>
           Effect.gen(function* () {
             const args = ["publish", "--access", config.access, "--tag", config.tag];
+            Option.map(config.otp, (otp) => args.push("--otp", otp));
             if (config.provenance) args.push("--provenance");
             if (config.dryRun) args.push("--dry-run");
 

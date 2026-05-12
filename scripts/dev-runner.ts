@@ -27,10 +27,10 @@ const MODE_ARGS = {
     "--ui=tui",
     "--filter=@t3delta/contracts",
     "--filter=@t3delta/web",
-    "--filter=delta",
+    "--filter=t3delta",
     "--parallel",
   ],
-  "dev:server": ["run", "dev", "--filter=delta"],
+  "dev:server": ["run", "dev", "--filter=t3delta"],
   "dev:web": ["run", "dev", "--filter=@t3delta/web"],
   "dev:desktop": ["run", "dev", "--filter=@t3delta/desktop", "--filter=@t3delta/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
