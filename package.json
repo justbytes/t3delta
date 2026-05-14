@@ -26,7 +26,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev-runner.ts dev",
-    "dev:server": "bun scripts/dev-runner.ts dev:server",
+    "dev:server": "bun scripts/dev-runner.ts dev:server --port ${PORT:-3773}",
     "dev:web": "bun scripts/dev-runner.ts dev:web",
     "dev:marketing": "turbo run dev --filter=@t3delta/marketing",
     "dev:desktop": "bun scripts/dev-runner.ts dev:desktop",
