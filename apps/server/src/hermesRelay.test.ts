@@ -1,24 +1,56 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { FetchLike } from "./hermesClient.ts";
 import { startHermesRelay, type HermesRelayServer } from "./hermesRelay.ts";
 
 const servers: Array<HermesRelayServer> = [];
+const tempDirs: Array<string> = [];
 
-function startTestRelay(fetchImpl: FetchLike): HermesRelayServer {
+function startTestRelay(
+  fetchImpl: FetchLike,
+  options: Parameters<typeof startHermesRelay>[0] = {},
+): HermesRelayServer {
   const server = startHermesRelay({
     port: 0,
     gatewayUrl: "http://hermes.local",
     apiKey: "test-key",
     fetchImpl,
     staticDir: "/tmp/t3delta-empty-static",
+    ...options,
   });
   servers.push(server);
   return server;
 }
 
+async function makeHermesFixture(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "t3delta-hermes-"));
+  tempDirs.push(root);
+  await mkdir(join(root, "skills", "creative", "pixel-art"), { recursive: true });
+  await mkdir(join(root, "memories"), { recursive: true });
+  await mkdir(join(root, "sessions"), { recursive: true });
+  await writeFile(
+    join(root, "skills", "creative", "pixel-art", "SKILL.md"),
+    "---\nname: pixel-art\ndescription: Make pixel art\n---\n# Pixel Art\n",
+  );
+  await writeFile(join(root, "memories", "MEMORY.md"), "remember this");
+  await writeFile(join(root, "memories", "USER.md"), "user facts");
+  await writeFile(
+    join(root, "sessions", "session_abc.json"),
+    JSON.stringify({
+      session_id: "abc",
+      last_updated: "2026-05-14T10:00:00Z",
+      messages: [{ role: "user", content: "First prompt" }],
+    }),
+  );
+  return root;
+}
+
 afterEach(() => {
   for (const server of servers.splice(0)) server.stop();
+  return Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 describe("Hermes relay", () => {
@@ -113,6 +145,111 @@ describe("Hermes relay", () => {
       id: undefined,
       retry: undefined,
       data: { id: "resp_1" },
+    });
+  });
+
+  it("lists skills and reads skill content from the Hermes skills directory", async () => {
+    const hermesDir = await makeHermesFixture();
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: { hermesDir },
+    });
+
+    const listResponse = await fetch(`http://127.0.0.1:${server.port}/api/skills`);
+    const readResponse = await fetch(`http://127.0.0.1:${server.port}/api/skills/pixel-art`);
+
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toEqual([
+      { name: "pixel-art", description: "Make pixel art", category: "creative" },
+    ]);
+    expect(readResponse.status).toBe(200);
+    expect(await readResponse.text()).toContain("# Pixel Art");
+  });
+
+  it("reads and writes Hermes memory files", async () => {
+    const hermesDir = await makeHermesFixture();
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: { hermesDir },
+    });
+
+    const readBefore = await fetch(`http://127.0.0.1:${server.port}/api/memory`);
+    const writeResponse = await fetch(`http://127.0.0.1:${server.port}/api/memory/memory`, {
+      method: "PUT",
+      body: "updated memory",
+    });
+    const readAfter = await fetch(`http://127.0.0.1:${server.port}/api/memory`);
+
+    expect(readBefore.status).toBe(200);
+    expect(await readBefore.json()).toEqual({ memory: "remember this", user: "user facts" });
+    expect(writeResponse.status).toBe(200);
+    expect(await writeResponse.json()).toMatchObject({ success: true, file: "memory" });
+    expect(await readAfter.json()).toEqual({ memory: "updated memory", user: "user facts" });
+  });
+
+  it("lists session metadata and reads a session transcript", async () => {
+    const hermesDir = await makeHermesFixture();
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: { hermesDir },
+    });
+
+    const listResponse = await fetch(`http://127.0.0.1:${server.port}/api/sessions`);
+    const transcriptResponse = await fetch(`http://127.0.0.1:${server.port}/api/sessions/abc`);
+
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toEqual([
+      { id: "abc", title: "First prompt", lastActivity: "2026-05-14T10:00:00Z" },
+    ]);
+    expect(transcriptResponse.status).toBe(200);
+    expect(await transcriptResponse.json()).toMatchObject({
+      session_id: "abc",
+      messages: [{ role: "user", content: "First prompt" }],
+    });
+  });
+
+  it("runs Hermes skills install and uninstall commands through file-access endpoints", async () => {
+    const hermesDir = await makeHermesFixture();
+    const commands: Array<ReadonlyArray<string>> = [];
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: {
+        hermesDir,
+        commandRunner: async (command, args) => {
+          commands.push([command, ...args]);
+          return { stdout: "ok", stderr: "" };
+        },
+      },
+    });
+
+    const installResponse = await fetch(`http://127.0.0.1:${server.port}/api/skills/install`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ identifier: "openai/skills/example" }),
+    });
+    const uninstallResponse = await fetch(`http://127.0.0.1:${server.port}/api/skills/pixel-art`, {
+      method: "DELETE",
+    });
+
+    expect(installResponse.status).toBe(200);
+    expect(uninstallResponse.status).toBe(200);
+    expect(commands).toEqual([
+      ["hermes", "skills", "install", "openai/skills/example", "--yes"],
+      ["hermes", "skills", "uninstall", "pixel-art"],
+    ]);
+  });
+
+  it("returns informative 404s for missing Hermes files", async () => {
+    const hermesDir = await mkdtemp(join(tmpdir(), "t3delta-hermes-missing-"));
+    tempDirs.push(hermesDir);
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: { hermesDir },
+    });
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/skills`);
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "skills_not_found",
+        message: "Hermes skills directory was not found",
+      },
     });
   });
 });

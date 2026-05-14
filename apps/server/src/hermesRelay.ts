@@ -14,6 +14,7 @@ import {
   type HermesSseEvent,
 } from "./hermesClient.ts";
 import { loadHermesRelayConfig } from "./hermesEnv.ts";
+import { handleHermesFileAccessRequest, type HermesFileAccessOptions } from "./hermesFileAccess.ts";
 
 export interface HermesRelayOptions {
   readonly port?: number;
@@ -22,6 +23,7 @@ export interface HermesRelayOptions {
   readonly gatewayUrl?: string;
   readonly apiKey?: string;
   readonly fetchImpl?: FetchLike;
+  readonly fileAccess?: HermesFileAccessOptions;
 }
 
 export interface HermesRelayServer {
@@ -290,6 +292,9 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
         return jsonResponse({ status: "ok", gateway: await client.health() });
       }
 
+      const fileAccessResponse = await handleHermesFileAccessRequest(request, options.fileAccess);
+      if (fileAccessResponse) return fileAccessResponse;
+
       if (url.pathname.startsWith("/api/hermes/")) {
         const body =
           request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
@@ -362,6 +367,41 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
       const gateway = await client.health();
       writeJson(response, 200, { status: "ok", gateway });
       return;
+    }
+
+    if (
+      url.pathname === "/api/skills" ||
+      url.pathname.startsWith("/api/skills/") ||
+      url.pathname === "/api/memory" ||
+      url.pathname.startsWith("/api/memory/") ||
+      url.pathname === "/api/sessions" ||
+      url.pathname.startsWith("/api/sessions/")
+    ) {
+      const fileAccessRequest = new Request(
+        `http://${request.headers.host ?? "localhost"}${request.url ?? "/"}`,
+        {
+          method: request.method ?? "GET",
+          headers: nodeRequestHeaders(request),
+          ...(request.method === "GET" || request.method === "HEAD"
+            ? {}
+            : { body: await readNodeRequestBody(request) }),
+        },
+      );
+      const fileAccessResponse = await handleHermesFileAccessRequest(
+        fileAccessRequest,
+        options.fileAccess,
+      );
+      if (fileAccessResponse) {
+        response.writeHead(
+          fileAccessResponse.status,
+          fileAccessResponse.statusText,
+          Object.fromEntries(fileAccessResponse.headers),
+        );
+        if (fileAccessResponse.body)
+          Readable.fromWeb(fileAccessResponse.body as never).pipe(response);
+        else response.end();
+        return;
+      }
     }
 
     if (url.pathname.startsWith("/api/hermes/")) {
