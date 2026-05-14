@@ -1,0 +1,161 @@
+import { describe, expect, it } from "vitest";
+import {
+  createInitialHermesChatState,
+  reduceHermesWsMessage,
+  restoreDraftAfterError,
+  setDraft,
+  stopActiveResponse,
+  submitUserMessage,
+} from "./hermesChatState";
+
+describe("Hermes chat state", () => {
+  it("submits a user message optimistically and auto-titles the session", () => {
+    let state = createInitialHermesChatState();
+    state = setDraft(state, state.activeSessionId, "List the files in this project");
+    state = submitUserMessage(state, "List the files in this project");
+
+    const session = state.sessionsById[state.activeSessionId]!;
+    expect(session.draft).toBe("");
+    expect(session.title).toBe("List the files in this project");
+    expect(session.messages).toMatchObject([
+      { role: "user", text: "List the files in this project" },
+    ]);
+    expect(session.isRunning).toBe(true);
+  });
+
+  it("streams assistant text from Hermes content_part.delta events", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Hello");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.created",
+      data: { id: "resp_1", conversation_id: "conv_1" },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.content_part.delta",
+      data: { delta: "Hel" },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.content_part.delta",
+      data: { delta: "lo!" },
+    });
+
+    const session = state.sessionsById[state.activeSessionId]!;
+    expect(session.responseId).toBe("resp_1");
+    expect(session.conversationId).toBe("conv_1");
+    expect(session.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Hello!",
+      streaming: true,
+    });
+  });
+
+  it("streams assistant text from Hermes output_text.delta events", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Hello");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.created",
+      data: { response: { id: "resp_nested" } },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_item.added",
+      data: { item: { id: "msg_1", type: "message", role: "assistant" } },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_text.delta",
+      data: { delta: "nested output" },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.completed",
+      data: {
+        response: {
+          id: "resp_nested",
+          output: [
+            {
+              type: "message",
+              content: [{ type: "output_text", text: "nested output" }],
+            },
+          ],
+        },
+      },
+    });
+
+    const session = state.sessionsById[state.activeSessionId]!;
+    expect(session.toolCalls).toHaveLength(0);
+    expect(session.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "nested output",
+      streaming: false,
+    });
+  });
+
+  it("renders Hermes tool calls as running and completed indicators", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "List files");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_item.added",
+      data: {
+        item: {
+          id: "tool_1",
+          type: "tool_call",
+          name: "bash",
+          command: "ls -la",
+        },
+      },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_item.done",
+      data: { item: { id: "tool_1", name: "bash" } },
+    });
+
+    expect(state.sessionsById[state.activeSessionId]!.toolCalls).toMatchObject([
+      {
+        id: "tool_1",
+        name: "bash",
+        description: "Running command: ls -la",
+        status: "completed",
+      },
+    ]);
+  });
+
+  it("preserves partial assistant content when stopped", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Write slowly");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.content_part.delta",
+      data: { delta: "partial" },
+    });
+    state = stopActiveResponse(state);
+
+    const assistant = state.sessionsById[state.activeSessionId]!.messages.at(-1)!;
+    expect(assistant.text).toBe("partial");
+    expect(assistant.streaming).toBe(false);
+    expect(assistant.interrupted).toBe(true);
+  });
+
+  it("restores failed message text to the composer draft", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "retry me");
+    state = restoreDraftAfterError(state, "retry me", "Error: upstream exploded at stack()");
+
+    const session = state.sessionsById[state.activeSessionId]!;
+    expect(session.draft).toBe("retry me");
+    expect(session.isRunning).toBe(false);
+    expect(session.error).toBe(
+      "Hermes request failed. Check that the Gateway is reachable and try again.",
+    );
+  });
+
+  it("marks gateway status from raw WebSocket bridge messages", () => {
+    let state = createInitialHermesChatState();
+    state = reduceHermesWsMessage(state, {
+      type: "gateway.status",
+      status: "unreachable",
+    });
+    expect(state.gatewayStatus).toBe("unreachable");
+  });
+});

@@ -328,10 +328,36 @@ function nodeRequestHeaders(request: IncomingMessage): Headers {
   for (const [key, value] of Object.entries(request.headers)) {
     if (value === undefined) continue;
     const lower = key.toLowerCase();
-    if (["connection", "host", "keep-alive", "transfer-encoding", "upgrade"].includes(lower)) {
+    if (
+      [
+        "connection",
+        "host",
+        "keep-alive",
+        "origin",
+        "referer",
+        "transfer-encoding",
+        "upgrade",
+      ].includes(lower)
+    ) {
       continue;
     }
     headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+  }
+  return headers;
+}
+
+function hermesGatewayRequestHeaders(source: Headers): Headers {
+  const headers = new Headers(source);
+  for (const name of [
+    "connection",
+    "host",
+    "keep-alive",
+    "origin",
+    "referer",
+    "transfer-encoding",
+    "upgrade",
+  ]) {
+    headers.delete(name);
   }
   return headers;
 }
@@ -422,7 +448,7 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
             `${url.pathname.slice("/api/hermes".length)}${url.search}`,
             {
               method: request.method,
-              headers: new Headers(request.headers),
+              headers: hermesGatewayRequestHeaders(request.headers),
               ...(body === undefined ? {} : { body }),
             },
           );
