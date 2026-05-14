@@ -55,6 +55,7 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  onImageClick?: ((src: string, alt: string | undefined) => void) | undefined;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -470,7 +471,7 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function ChatMarkdown({ text, cwd, isStreaming = false, onImageClick }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {
@@ -548,12 +549,27 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
           </MarkdownCodeBlock>
         );
       },
+      img({ node: _node, src, alt, ...props }) {
+        return (
+          <button
+            type="button"
+            className="my-2 block max-w-full cursor-zoom-in overflow-hidden rounded-xl border border-border/60 bg-card/30 p-0"
+            onClick={() => {
+              if (src) onImageClick?.(src, alt);
+            }}
+            aria-label={alt ? `Expand image: ${alt}` : "Expand image"}
+          >
+            <img {...props} src={src} alt={alt ?? ""} className="max-h-80 max-w-full" />
+          </button>
+        );
+      },
     }),
     [
       diffThemeName,
       fileLinkParentSuffixByPath,
       isStreaming,
       markdownFileLinkMetaByHref,
+      onImageClick,
       resolvedTheme,
     ],
   );

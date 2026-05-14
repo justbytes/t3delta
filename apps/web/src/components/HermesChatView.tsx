@@ -2,13 +2,19 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircleIcon,
   BotIcon,
+  CheckIcon,
   CheckCircle2Icon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  FileIcon,
   Loader2Icon,
   PlusIcon,
   RefreshCwIcon,
   SendIcon,
   SquareIcon,
   WrenchIcon,
+  XIcon,
 } from "lucide-react";
 import ChatMarkdown from "./ChatMarkdown";
 import { Button } from "./ui/button";
@@ -16,7 +22,14 @@ import { cn } from "~/lib/utils";
 import { isElectron } from "../env";
 import { sanitizeErrorMessage } from "../hermesChatState";
 import { useHermesChatStore } from "../hermesChatStore";
-import type { HermesChatMessage, HermesSession, HermesToolCall } from "../hermesChatTypes";
+import type {
+  HermesApprovalPrompt,
+  HermesChatMessage,
+  HermesContextUsage,
+  HermesSession,
+  HermesStructuredInputRequest,
+  HermesToolCall,
+} from "../hermesChatTypes";
 
 function resolveApiUrl(path: string): string {
   const base = import.meta.env.VITE_API_URL;
@@ -57,6 +70,8 @@ export default function HermesChatView() {
     submitUserMessage,
     setRequestInFlight,
     restoreDraftAfterError,
+    resolveApprovalPrompt,
+    submitStructuredInput,
     stopActiveResponse,
     applyWsMessage,
     setWebsocketStatus,
@@ -271,7 +286,28 @@ export default function HermesChatView() {
             >
               <div className="mx-auto w-full max-w-3xl space-y-4">
                 <GatewayBanner gatewayStatus={gatewayStatus} />
-                <HermesTimeline session={activeSession} />
+                <HermesTimeline
+                  session={activeSession}
+                  onApprovalDecision={async (approval, decision) => {
+                    resolveApprovalPrompt(
+                      approval.id,
+                      decision === "approve" ? "approved" : "denied",
+                    );
+                    await fetch(resolveApiUrl(`/api/hermes/v1/approvals/${approval.id}`), {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ decision, approved: decision === "approve" }),
+                    }).catch(() => undefined);
+                  }}
+                  onStructuredInputSubmit={async (request, answers) => {
+                    submitStructuredInput(request.id);
+                    await fetch(resolveApiUrl(`/api/hermes/v1/inputs/${request.id}`), {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ answers }),
+                    }).catch(() => undefined);
+                  }}
+                />
               </div>
             </div>
             {showScrollToBottom ? (
@@ -362,8 +398,34 @@ function GatewayBanner({ gatewayStatus }: { gatewayStatus: string }) {
   );
 }
 
-function HermesTimeline({ session }: { session: HermesSession }) {
-  if (session.messages.length === 0 && session.toolCalls.length === 0 && !session.isRunning) {
+function HermesTimeline({
+  session,
+  onApprovalDecision,
+  onStructuredInputSubmit,
+}: {
+  session: HermesSession;
+  onApprovalDecision: (
+    approval: HermesApprovalPrompt,
+    decision: "approve" | "deny",
+  ) => Promise<void>;
+  onStructuredInputSubmit: (
+    request: HermesStructuredInputRequest,
+    answers: Record<string, string>,
+  ) => Promise<void>;
+}) {
+  const pendingApprovals = (session.approvals ?? []).filter(
+    (approval) => approval.status === "pending",
+  );
+  const pendingInputs = (session.structuredInputs ?? []).filter(
+    (input) => input.status === "pending",
+  );
+  if (
+    session.messages.length === 0 &&
+    session.toolCalls.length === 0 &&
+    pendingApprovals.length === 0 &&
+    pendingInputs.length === 0 &&
+    !session.isRunning
+  ) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="rounded-3xl border border-border/55 bg-card/20 px-8 py-12 text-center shadow-sm/5">
@@ -378,8 +440,23 @@ function HermesTimeline({ session }: { session: HermesSession }) {
 
   return (
     <>
+      {session.contextUsage ? <HermesContextUsageMeter usage={session.contextUsage} /> : null}
       {session.messages.map((message) => (
         <HermesMessageBubble key={message.id} message={message} />
+      ))}
+      {pendingApprovals.map((approval) => (
+        <ApprovalPromptCard
+          key={approval.id}
+          approval={approval}
+          onDecision={(decision) => onApprovalDecision(approval, decision)}
+        />
+      ))}
+      {pendingInputs.map((request) => (
+        <StructuredInputCard
+          key={request.id}
+          request={request}
+          onSubmit={(answers) => onStructuredInputSubmit(request, answers)}
+        />
       ))}
       {session.toolCalls.length > 0 ? (
         <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
@@ -418,6 +495,18 @@ const HermesMessageBubble = memo(function HermesMessageBubble({
 }: {
   message: HermesChatMessage;
 }) {
+  const [copied, setCopied] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<{ src: string; alt?: string } | null>(null);
+  const copyMessage = useCallback(() => {
+    if (!message.text || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+    void navigator.clipboard.writeText(message.text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  }, [message.text]);
+
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -436,7 +525,12 @@ const HermesMessageBubble = memo(function HermesMessageBubble({
   const text = message.text || (message.streaming ? "" : "(empty response)");
   return (
     <div className="min-w-0 px-1 py-0.5">
-      <ChatMarkdown text={text} cwd={undefined} isStreaming={Boolean(message.streaming)} />
+      <ChatMarkdown
+        text={text}
+        cwd={undefined}
+        isStreaming={Boolean(message.streaming)}
+        onImageClick={(src, alt) => setExpandedImage(alt === undefined ? { src } : { src, alt })}
+      />
       <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground/40">
         {message.streaming ? <Loader2Icon className="size-3 animate-spin" /> : null}
         {message.interrupted ? <AlertCircleIcon className="size-3 text-amber-400" /> : null}
@@ -444,12 +538,26 @@ const HermesMessageBubble = memo(function HermesMessageBubble({
           {message.interrupted ? "Interrupted • " : ""}
           {new Date(message.createdAt).toLocaleTimeString()}
         </span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground/60 hover:bg-secondary hover:text-foreground"
+          onClick={copyMessage}
+          disabled={!message.text}
+          aria-label="Copy assistant message"
+        >
+          {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
       </div>
+      {expandedImage ? (
+        <ImageLightbox image={expandedImage} onClose={() => setExpandedImage(null)} />
+      ) : null}
     </div>
   );
 });
 
 function HermesToolCallRow({ tool }: { tool: HermesToolCall }) {
+  const [expanded, setExpanded] = useState(false);
   const Icon =
     tool.status === "running"
       ? Loader2Icon
@@ -457,18 +565,283 @@ function HermesToolCallRow({ tool }: { tool: HermesToolCall }) {
         ? AlertCircleIcon
         : CheckCircle2Icon;
   return (
-    <div className="flex items-start gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground/80">
-      <WrenchIcon className="mt-0.5 size-3.5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="font-medium text-foreground/85">{tool.name}</span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-1.5 py-0.5 text-[10px]">
-            <Icon className={cn("size-3", tool.status === "running" ? "animate-spin" : null)} />
-            {tool.status}
-          </span>
+    <div className="rounded-lg text-xs text-muted-foreground/80">
+      <button
+        type="button"
+        className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-secondary/50"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+        ) : (
+          <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
+        )}
+        <WrenchIcon className="mt-0.5 size-3.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground/85">{tool.name}</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-1.5 py-0.5 text-[10px]">
+              <Icon className={cn("size-3", tool.status === "running" ? "animate-spin" : null)} />
+              {tool.status}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate">{tool.description}</p>
         </div>
-        <p className="mt-0.5 truncate">{tool.description}</p>
+      </button>
+      {expanded ? <HermesToolDetails tool={tool} /> : null}
+    </div>
+  );
+}
+
+function HermesToolDetails({ tool }: { tool: HermesToolCall }) {
+  return (
+    <div className="mx-2 mb-2 space-y-2 rounded-lg border border-border/55 bg-background/60 p-3">
+      {tool.command ? <DetailRow label="Command" value={tool.command} mono /> : null}
+      {tool.filePaths.length > 0 ? (
+        <div>
+          <p className="mb-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+            File paths
+          </p>
+          <div className="space-y-1">
+            {tool.filePaths.map((path) => (
+              <div key={path} className="flex items-center gap-1.5 font-mono text-[11px]">
+                <FileIcon className="size-3" />
+                {path}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {tool.exitCode !== undefined ? (
+        <DetailRow label="Exit code" value={String(tool.exitCode)} />
+      ) : null}
+      {tool.output ? <DetailBlock label="Output" value={tool.output} /> : null}
+      {tool.error ? <DetailBlock label="Error details" value={tool.error} error /> : null}
+      {!tool.command && !tool.output && !tool.error && tool.exitCode === undefined ? (
+        <DetailBlock
+          label="Raw details"
+          value={tool.details ?? "No additional details were provided."}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        {label}
+      </p>
+      <p className={cn("text-foreground/85", mono ? "font-mono text-[11px]" : "text-xs")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DetailBlock({
+  label,
+  value,
+  error = false,
+}: {
+  label: string;
+  value: string;
+  error?: boolean;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        {label}
+      </p>
+      <pre
+        className={cn(
+          "max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border/45 bg-black/20 p-2 font-mono text-[11px]",
+          error ? "text-red-200" : "text-foreground/85",
+        )}
+      >
+        {value}
+      </pre>
+    </div>
+  );
+}
+
+function HermesContextUsageMeter({ usage }: { usage: HermesContextUsage }) {
+  const percentage =
+    usage.maxTokens && usage.maxTokens > 0
+      ? Math.min(100, (usage.usedTokens / usage.maxTokens) * 100)
+      : 0;
+  const warning = percentage >= 80;
+  return (
+    <div className="rounded-xl border border-border/50 bg-card/25 px-3 py-2">
+      <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground/70">
+        <span>Context window</span>
+        <span>
+          {usage.usedTokens.toLocaleString()}
+          {usage.maxTokens ? ` / ${usage.maxTokens.toLocaleString()}` : ""} tokens
+        </span>
       </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+        <div
+          className={cn("h-full rounded-full", warning ? "bg-amber-400" : "bg-muted-foreground")}
+          style={{ width: `${usage.maxTokens ? percentage : 12}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ApprovalPromptCard({
+  approval,
+  onDecision,
+}: {
+  approval: HermesApprovalPrompt;
+  onDecision: (decision: "approve" | "deny") => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
+  const decide = (decision: "approve" | "deny") => {
+    setBusy(decision);
+    void onDecision(decision).finally(() => setBusy(null));
+  };
+  return (
+    <div className="rounded-xl border border-amber-400/45 bg-amber-400/10 p-4 text-sm">
+      <p className="font-medium text-amber-100">Hermes requests approval</p>
+      <p className="mt-2 whitespace-pre-wrap text-foreground/85">{approval.action}</p>
+      {approval.detail ? (
+        <p className="mt-1 text-xs text-muted-foreground">{approval.detail}</p>
+      ) : null}
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" onClick={() => decide("approve")} disabled={busy !== null}>
+          {busy === "approve" ? (
+            <Loader2Icon className="size-3 animate-spin" />
+          ) : (
+            <CheckIcon className="size-3" />
+          )}
+          Approve
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => decide("deny")} disabled={busy !== null}>
+          {busy === "deny" ? (
+            <Loader2Icon className="size-3 animate-spin" />
+          ) : (
+            <XIcon className="size-3" />
+          )}
+          Deny
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function StructuredInputCard({
+  request,
+  onSubmit,
+}: {
+  request: HermesStructuredInputRequest;
+  onSubmit: (answers: Record<string, string>) => Promise<void>;
+}) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="rounded-xl border border-blue-400/35 bg-blue-400/10 p-4 text-sm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setBusy(true);
+        void onSubmit(answers).finally(() => setBusy(false));
+      }}
+    >
+      <p className="font-medium text-blue-100">{request.title}</p>
+      <div className="mt-3 space-y-3">
+        {request.questions.map((question) => (
+          <label key={question.id} className="block space-y-1.5">
+            <span className="text-xs font-medium text-foreground/85">{question.label}</span>
+            {question.options.length > 0 ? (
+              <select
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                value={answers[question.id] ?? ""}
+                onChange={(event) =>
+                  setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
+                }
+              >
+                <option value="">Choose an option…</option>
+                {question.options.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+                {question.allowFreeText ? <option value="__custom__">Custom answer…</option> : null}
+              </select>
+            ) : null}
+            {question.allowFreeText &&
+            (question.options.length === 0 || answers[question.id] === "__custom__") ? (
+              <textarea
+                className="min-h-16 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                value={answers[`${question.id}:custom`] ?? ""}
+                onChange={(event) =>
+                  setAnswers((current) => ({
+                    ...current,
+                    [question.id]: event.target.value,
+                    [`${question.id}:custom`]: event.target.value,
+                  }))
+                }
+                placeholder="Type an answer"
+              />
+            ) : null}
+          </label>
+        ))}
+      </div>
+      <Button className="mt-3" size="sm" type="submit" disabled={busy}>
+        {busy ? <Loader2Icon className="size-3 animate-spin" /> : null}
+        Submit answers
+      </Button>
+    </form>
+  );
+}
+
+function ImageLightbox({
+  image,
+  onClose,
+}: {
+  image: { src: string; alt?: string };
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        className="absolute right-4 top-4 rounded-full bg-background/90 p-2 text-foreground"
+        onClick={onClose}
+        aria-label="Close expanded image"
+      >
+        <XIcon className="size-4" />
+      </button>
+      <img
+        src={image.src}
+        alt={image.alt ?? ""}
+        className="max-h-full max-w-full rounded-xl object-contain"
+        onClick={(event) => event.stopPropagation()}
+      />
     </div>
   );
 }
@@ -483,6 +856,60 @@ function HermesComposer(props: {
   onSend: () => void;
   onStop: () => void;
 }) {
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionFiles, setMentionFiles] = useState<string[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (mentionQuery === null) {
+      setMentionFiles([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setMentionLoading(true);
+      void fetch(resolveApiUrl(`/api/workspace/files?q=${encodeURIComponent(mentionQuery)}`), {
+        signal: controller.signal,
+      })
+        .then((response) => (response.ok ? response.json() : { files: [] }))
+        .then((body) => {
+          const files: unknown[] = Array.isArray(body?.files) ? body.files : [];
+          setMentionFiles(files.filter((file): file is string => typeof file === "string"));
+        })
+        .catch(() => setMentionFiles([]))
+        .finally(() => setMentionLoading(false));
+    }, 180);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [mentionQuery]);
+
+  const updateMentionQuery = useCallback((value: string, cursor: number) => {
+    const prefix = value.slice(0, cursor);
+    const match = prefix.match(/(?:^|\s)@([^\s@]*)$/);
+    setMentionQuery(match ? (match[1] ?? "") : null);
+  }, []);
+
+  const insertMention = useCallback(
+    (path: string) => {
+      const node = textareaRef.current;
+      const cursor = node?.selectionStart ?? props.draft.length;
+      const prefix = props.draft.slice(0, cursor);
+      const suffix = props.draft.slice(cursor);
+      const match = prefix.match(/(?:^|\s)@([^\s@]*)$/);
+      if (!match || match.index === undefined) return;
+      const leading = prefix.slice(0, match.index);
+      const spacer = match[0].startsWith(" ") ? " " : "";
+      const next = `${leading}${spacer}@${path} ${suffix}`;
+      props.onDraftChange(next);
+      setMentionQuery(null);
+      window.requestAnimationFrame(() => node?.focus());
+    },
+    [props],
+  );
+
   return (
     <form
       className="border-t border-border bg-background/95 p-3"
@@ -493,6 +920,7 @@ function HermesComposer(props: {
     >
       <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-card/35 p-2">
         <textarea
+          ref={textareaRef}
           className="min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground/40 disabled:opacity-60"
           placeholder={
             props.gatewayDown
@@ -502,8 +930,21 @@ function HermesComposer(props: {
           rows={2}
           value={props.draft}
           disabled={props.gatewayDown}
-          onChange={(event) => props.onDraftChange(event.target.value)}
+          onChange={(event) => {
+            props.onDraftChange(event.target.value);
+            updateMentionQuery(event.target.value, event.target.selectionStart);
+          }}
           onKeyDown={(event) => {
+            if (mentionQuery !== null && mentionFiles.length > 0 && event.key === "Tab") {
+              event.preventDefault();
+              insertMention(mentionFiles[0]!);
+              return;
+            }
+            if (mentionQuery !== null && event.key === "Escape") {
+              event.preventDefault();
+              setMentionQuery(null);
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               void props.onSend();
@@ -530,6 +971,33 @@ function HermesComposer(props: {
           </Button>
         )}
       </div>
+      {mentionQuery !== null ? (
+        <div className="mx-auto mt-2 max-w-3xl rounded-xl border border-border bg-popover p-2 shadow-lg">
+          <div className="mb-1 px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+            {mentionLoading ? "Searching files…" : "File mentions"}
+          </div>
+          <div className="max-h-48 overflow-auto">
+            {mentionFiles.length > 0 ? (
+              mentionFiles.map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertMention(path)}
+                >
+                  <FileIcon className="size-3.5 text-muted-foreground" />
+                  <span className="font-mono">{path}</span>
+                </button>
+              ))
+            ) : (
+              <p className="px-2 py-2 text-xs text-muted-foreground">
+                {mentionLoading ? "Loading workspace files…" : "No files found"}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
       <p className="mx-auto mt-1 max-w-3xl text-[11px] text-muted-foreground/45">
         Enter sends. Shift+Enter adds a newline. Drafts are preserved per session.
       </p>

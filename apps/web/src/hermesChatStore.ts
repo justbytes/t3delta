@@ -6,8 +6,10 @@ import {
   persistHermesChatState,
   reduceHermesWsMessage,
   restoreDraftAfterError,
+  resolveApprovalPrompt,
   setDraft,
   stopActiveResponse,
+  submitStructuredInput,
   submitUserMessage,
 } from "./hermesChatState";
 import type { HermesChatState, HermesSession, HermesWsEnvelope } from "./hermesChatTypes";
@@ -19,6 +21,8 @@ interface HermesChatStore extends HermesChatState {
   readonly submitUserMessage: (text: string) => void;
   readonly setRequestInFlight: (inFlight: boolean) => void;
   readonly restoreDraftAfterError: (text: string, error: string) => void;
+  readonly resolveApprovalPrompt: (approvalId: string, decision: "approved" | "denied") => void;
+  readonly submitStructuredInput: (requestId: string) => void;
   readonly stopActiveResponse: () => void;
   readonly applyWsMessage: (message: HermesWsEnvelope) => void;
   readonly setWebsocketStatus: (status: HermesChatState["websocketStatus"]) => void;
@@ -63,6 +67,10 @@ export const useHermesChatStore = create<HermesChatStore>((set) => ({
   setRequestInFlight: (inFlight) => set((state) => markRequestInFlight(state, inFlight)),
   restoreDraftAfterError: (text, error) =>
     set((state) => persistAndReturn(restoreDraftAfterError(state, text, error))),
+  resolveApprovalPrompt: (approvalId, decision) =>
+    set((state) => persistAndReturn(resolveApprovalPrompt(state, approvalId, decision))),
+  submitStructuredInput: (requestId) =>
+    set((state) => persistAndReturn(submitStructuredInput(state, requestId))),
   stopActiveResponse: () => set((state) => persistAndReturn(stopActiveResponse(state))),
   applyWsMessage: (message) =>
     set((state) => persistAndReturn(reduceHermesWsMessage(state, message))),

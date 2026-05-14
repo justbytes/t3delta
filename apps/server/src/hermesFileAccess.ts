@@ -52,6 +52,14 @@ const memoryFiles = {
   memory: "MEMORY.md",
   user: "USER.md",
 } as const;
+const workspaceFileIgnoreDirs = new Set([
+  ".git",
+  ".turbo",
+  "node_modules",
+  "dist",
+  "dist-electron",
+  "coverage",
+]);
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   const headers = new Headers(
@@ -405,6 +413,37 @@ async function uninstallSkill(
   }
 }
 
+async function listWorkspaceFiles(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const query = (url.searchParams.get("q") ?? "").toLowerCase();
+  const cwd = process.cwd();
+  const matches: string[] = [];
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (matches.length >= 50 || depth > 5) return;
+    let entries: Array<{ name: string; isDirectory(): boolean }>;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (matches.length >= 50) return;
+      if (entry.name.startsWith(".") && entry.name !== ".factory") continue;
+      if (entry.isDirectory() && workspaceFileIgnoreDirs.has(entry.name)) continue;
+      const fullPath = join(dir, entry.name);
+      const relativePath = relative(cwd, fullPath);
+      if (!relativePath || relativePath.startsWith("..")) continue;
+      if (!query || relativePath.toLowerCase().includes(query)) matches.push(relativePath);
+      if (entry.isDirectory()) await walk(fullPath, depth + 1);
+    }
+  }
+
+  await walk(cwd, 0);
+  return jsonResponse({ files: matches });
+}
+
 export async function handleHermesFileAccessRequest(
   request: Request,
   options: HermesFileAccessOptions = {},
@@ -431,6 +470,8 @@ export async function handleHermesFileAccessRequest(
   if (request.method === "GET" && path.startsWith("/api/sessions/")) {
     return readSession(options, path.slice("/api/sessions/".length));
   }
+  if (request.method === "GET" && path === "/api/workspace/files")
+    return listWorkspaceFiles(request);
 
   return undefined;
 }

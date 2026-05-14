@@ -541,7 +541,8 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
       url.pathname === "/api/memory" ||
       url.pathname.startsWith("/api/memory/") ||
       url.pathname === "/api/sessions" ||
-      url.pathname.startsWith("/api/sessions/")
+      url.pathname.startsWith("/api/sessions/") ||
+      url.pathname === "/api/workspace/files"
     ) {
       const fileAccessRequest = new Request(
         `http://${request.headers.host ?? "localhost"}${request.url ?? "/"}`,

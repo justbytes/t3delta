@@ -1,7 +1,9 @@
 import type {
   HermesChatMessage,
   HermesChatState,
+  HermesContextUsage,
   HermesSession,
+  HermesStructuredInputQuestion,
   HermesToolCall,
   HermesToolStatus,
   HermesWsEnvelope,
@@ -27,6 +29,8 @@ export function createEmptyHermesSession(
     updatedAt: createdAt,
     messages: [],
     toolCalls: [],
+    approvals: [],
+    structuredInputs: [],
     draft: "",
     isRunning: false,
   };
@@ -71,6 +75,8 @@ export function loadPersistedHermesChatState(): HermesChatState {
             id,
             {
               ...session,
+              approvals: session.approvals ?? [],
+              structuredInputs: session.structuredInputs ?? [],
               isRunning: false,
               activeAssistantMessageId: undefined,
               activeStartedAt: undefined,
@@ -102,6 +108,8 @@ export function persistHermesChatState(state: HermesChatState): void {
           id,
           {
             ...session,
+            approvals: session.approvals ?? [],
+            structuredInputs: session.structuredInputs ?? [],
             isRunning: false,
             activeAssistantMessageId: undefined,
             activeStartedAt: undefined,
@@ -259,12 +267,59 @@ export function reduceHermesWsMessage(
       return applyResponseCompleted(state, envelope.data);
     case "response.failed":
       return applyResponseFailed(state, envelope.data);
+    case "approval.requested":
+    case "response.approval_requested":
+    case "response.requires_approval":
+      return applyApprovalRequested(state, envelope.data);
+    case "approval.resolved":
+    case "response.approval_resolved":
+      return applyApprovalResolved(state, envelope.data);
+    case "user_input.requested":
+    case "user-input.requested":
+    case "response.input_requested":
+    case "response.requires_input":
+      return applyStructuredInputRequested(state, envelope.data);
+    case "user_input.resolved":
+    case "user-input.resolved":
+    case "response.input_resolved":
+      return applyStructuredInputResolved(state, envelope.data);
+    case "response.usage.updated":
+    case "context_window.updated":
+      return applyContextUsage(state, envelope.data);
     case "response.cancelled":
     case "response.canceled":
       return stopActiveResponse(state);
     default:
       return state;
   }
+}
+
+export function resolveApprovalPrompt(
+  state: HermesChatState,
+  approvalId: string,
+  decision: "approved" | "denied",
+): HermesChatState {
+  const session = state.sessionsById[state.activeSessionId];
+  if (!session) return state;
+  return updateSession(state, {
+    ...session,
+    approvals: (session.approvals ?? []).map((approval) =>
+      approval.id === approvalId ? { ...approval, status: decision } : approval,
+    ),
+    updatedAt: nowIso(),
+  });
+}
+
+export function submitStructuredInput(state: HermesChatState, requestId: string): HermesChatState {
+  const session = state.sessionsById[state.activeSessionId];
+  if (!session) return state;
+  return updateSession(state, {
+    ...session,
+    structuredInputs: (session.structuredInputs ?? []).map((request) =>
+      request.id === requestId ? { ...request, status: "submitted" } : request,
+    ),
+    updatedAt: nowIso(),
+  });
 }
 
 function applyResponseCreated(state: HermesChatState, data: unknown): HermesChatState {
@@ -436,6 +491,11 @@ function applyToolEvent(
                 ...entry,
                 ...tool,
                 createdAt: entry.createdAt,
+                filePaths: mergeStrings(entry.filePaths, tool.filePaths),
+                output: tool.output ?? entry.output,
+                error: tool.error ?? entry.error,
+                exitCode: tool.exitCode ?? entry.exitCode,
+                command: tool.command ?? entry.command,
                 description:
                   tool.description === `Using ${tool.name}` ? entry.description : tool.description,
                 completedAt: status === "running" ? entry.completedAt : now,
@@ -463,6 +523,21 @@ function extractToolCall(data: unknown, status: HermesToolStatus): HermesToolCal
     readString(item, ["id", "call_id", "tool_call_id"]) ?? `tool-${name}-${cryptoRandomId()}`;
   const command = readString(item, ["command", "arguments.command", "input.command"]);
   const path = readString(item, ["path", "file_path", "input.path"]);
+  const output = readString(item, [
+    "output",
+    "result.output",
+    "result.stdout",
+    "stdout",
+    "content.output",
+  ]);
+  const error = readString(item, ["error.message", "error", "stderr", "result.stderr"]);
+  const exitCode = readNumber(item, [
+    "exit_code",
+    "exitCode",
+    "result.exit_code",
+    "result.exitCode",
+  ]);
+  const filePaths = extractFilePaths(item);
   const description =
     readString(item, ["description", "summary", "input", "arguments"]) ??
     (command ? `Running command: ${command}` : path ? `Using file: ${path}` : `Using ${name}`);
@@ -472,8 +547,86 @@ function extractToolCall(data: unknown, status: HermesToolStatus): HermesToolCal
     description: typeof description === "string" ? description : String(description),
     status,
     createdAt: nowIso(),
+    command,
+    output,
+    error,
+    exitCode,
+    filePaths,
+    details: stringifyDetails(item),
     ...(status === "running" ? {} : { completedAt: nowIso() }),
   };
+}
+
+function applyApprovalRequested(state: HermesChatState, data: unknown): HermesChatState {
+  const session = state.sessionsById[state.activeSessionId] ?? createEmptyHermesSession();
+  const now = nowIso();
+  const id =
+    readString(data, ["id", "request_id", "approval_id", "item.id", "data.id"]) ??
+    `approval-${cryptoRandomId()}`;
+  const action =
+    readString(data, [
+      "action",
+      "description",
+      "detail",
+      "command",
+      "item.command",
+      "item.description",
+      "request.action",
+    ]) ?? "Hermes requests approval to continue";
+  const detail = readString(data, ["reason", "summary", "item.summary", "request.detail"]);
+  const approvals = session.approvals ?? [];
+  return updateSession(state, {
+    ...session,
+    isRunning: true,
+    activeStartedAt: session.activeStartedAt ?? now,
+    updatedAt: now,
+    approvals: approvals.some((approval) => approval.id === id)
+      ? approvals.map((approval) =>
+          approval.id === id ? { ...approval, action, detail, status: "pending" } : approval,
+        )
+      : [...approvals, { id, action, detail, status: "pending", createdAt: now }],
+  });
+}
+
+function applyApprovalResolved(state: HermesChatState, data: unknown): HermesChatState {
+  const id = readString(data, ["id", "request_id", "approval_id"]);
+  if (!id) return state;
+  const approved = readBoolean(data, ["approved", "accepted", "decision.approved"]);
+  return resolveApprovalPrompt(state, id, approved === false ? "denied" : "approved");
+}
+
+function applyStructuredInputRequested(state: HermesChatState, data: unknown): HermesChatState {
+  const session = state.sessionsById[state.activeSessionId] ?? createEmptyHermesSession();
+  const now = nowIso();
+  const id = readString(data, ["id", "request_id", "input_id"]) ?? `input-${cryptoRandomId()}`;
+  const questions = extractQuestions(data);
+  if (questions.length === 0) return state;
+  const title =
+    readString(data, ["title", "prompt", "description"]) ?? "Hermes needs more information";
+  const existing = session.structuredInputs ?? [];
+  return updateSession(state, {
+    ...session,
+    isRunning: true,
+    activeStartedAt: session.activeStartedAt ?? now,
+    updatedAt: now,
+    structuredInputs: existing.some((request) => request.id === id)
+      ? existing.map((request) =>
+          request.id === id ? { ...request, title, questions, status: "pending" } : request,
+        )
+      : [...existing, { id, title, questions, status: "pending", createdAt: now }],
+  });
+}
+
+function applyStructuredInputResolved(state: HermesChatState, data: unknown): HermesChatState {
+  const id = readString(data, ["id", "request_id", "input_id"]);
+  return id ? submitStructuredInput(state, id) : state;
+}
+
+function applyContextUsage(state: HermesChatState, data: unknown): HermesChatState {
+  const session = state.sessionsById[state.activeSessionId] ?? createEmptyHermesSession();
+  const usage = extractContextUsage(data);
+  if (!usage) return state;
+  return updateSession(state, { ...session, contextUsage: usage, updatedAt: nowIso() });
 }
 
 function ensureFinalAssistantText(
@@ -551,6 +704,77 @@ function extractErrorMessage(data: unknown): string | undefined {
   return readString(data, ["message", "error.message", "error", "failure.message"]);
 }
 
+function extractContextUsage(data: unknown): HermesContextUsage | null {
+  const source = readObject(data, "usage") ?? readObject(data, "response.usage") ?? data;
+  const usedTokens = readNumber(source, [
+    "used_tokens",
+    "usedTokens",
+    "input_tokens",
+    "total_tokens",
+    "tokens.used",
+  ]);
+  const maxTokens =
+    readNumber(source, ["max_tokens", "maxTokens", "context_window", "contextWindow"]) ?? null;
+  if (usedTokens === undefined) return null;
+  return { usedTokens, maxTokens };
+}
+
+function extractQuestions(data: unknown): HermesStructuredInputQuestion[] {
+  const rawQuestions = readPath(data, "questions") ?? readPath(data, "input.questions");
+  if (!Array.isArray(rawQuestions)) return [];
+  return rawQuestions.flatMap((question, index): HermesStructuredInputQuestion[] => {
+    if (!isRecord(question)) return [];
+    const label =
+      readString(question, ["label", "question", "prompt", "text"]) ?? `Question ${index + 1}`;
+    const id = readString(question, ["id", "name", "key"]) ?? `question-${index + 1}`;
+    const rawOptions = question.options ?? question.choices;
+    const options = Array.isArray(rawOptions)
+      ? rawOptions
+          .map((option) =>
+            typeof option === "string"
+              ? option
+              : (readString(option, ["label", "value", "text", "name"]) ?? ""),
+          )
+          .filter((option) => option.length > 0)
+      : [];
+    const allowFreeText = readBoolean(question, ["allow_free_text", "allowFreeText", "free_text"]);
+    return [{ id, label, options, allowFreeText: allowFreeText ?? options.length === 0 }];
+  });
+}
+
+function extractFilePaths(item: Record<string, unknown>): string[] {
+  const paths = new Set<string>();
+  for (const path of [
+    readString(item, ["path", "file_path", "input.path"]),
+    readString(item, ["file", "filename", "input.file"]),
+  ]) {
+    if (path) paths.add(path);
+  }
+  for (const key of ["files", "file_paths", "paths", "result.files"]) {
+    const value = readPath(item, key);
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const path =
+          typeof entry === "string" ? entry : readString(entry, ["path", "file_path", "name"]);
+        if (path) paths.add(path);
+      }
+    }
+  }
+  return [...paths];
+}
+
+function stringifyDetails(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+function mergeStrings(left: readonly string[] = [], right: readonly string[] = []): string[] {
+  return [...new Set([...left, ...right])];
+}
+
 function updateSession(state: HermesChatState, session: HermesSession): HermesChatState {
   const sessionIds = state.sessionIds.includes(session.id)
     ? state.sessionIds
@@ -576,6 +800,30 @@ function readString(value: unknown, paths: readonly string[]): string | undefine
     const next = readPath(value, path);
     if (typeof next === "string" && next.length > 0) return next;
     if (typeof next === "number") return String(next);
+  }
+  return undefined;
+}
+
+function readNumber(value: unknown, paths: readonly string[]): number | undefined {
+  for (const path of paths) {
+    const next = readPath(value, path);
+    if (typeof next === "number" && Number.isFinite(next)) return next;
+    if (typeof next === "string" && next.trim().length > 0) {
+      const parsed = Number(next);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function readBoolean(value: unknown, paths: readonly string[]): boolean | undefined {
+  for (const path of paths) {
+    const next = readPath(value, path);
+    if (typeof next === "boolean") return next;
+    if (typeof next === "string") {
+      if (/^(true|approved|yes|allow)$/i.test(next)) return true;
+      if (/^(false|denied|no|deny)$/i.test(next)) return false;
+    }
   }
   return undefined;
 }

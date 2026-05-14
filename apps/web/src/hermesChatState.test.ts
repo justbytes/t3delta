@@ -6,6 +6,8 @@ import {
   setDraft,
   stopActiveResponse,
   submitUserMessage,
+  resolveApprovalPrompt,
+  submitStructuredInput,
 } from "./hermesChatState";
 
 describe("Hermes chat state", () => {
@@ -157,5 +159,107 @@ describe("Hermes chat state", () => {
       status: "unreachable",
     });
     expect(state.gatewayStatus).toBe("unreachable");
+  });
+
+  it("tracks approval prompts and user decisions", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Run a command");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "approval.requested",
+      data: {
+        request_id: "approval-1",
+        action: "Run command: rm temp.txt",
+        reason: "The agent needs permission before changing files.",
+      },
+    });
+
+    let session = state.sessionsById[state.activeSessionId]!;
+    expect(session.approvals).toMatchObject([
+      {
+        id: "approval-1",
+        action: "Run command: rm temp.txt",
+        status: "pending",
+      },
+    ]);
+
+    state = resolveApprovalPrompt(state, "approval-1", "denied");
+    session = state.sessionsById[state.activeSessionId]!;
+    expect(session.approvals[0]!.status).toBe("denied");
+  });
+
+  it("tracks structured multi-question input requests", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Plan a trip");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "user_input.requested",
+      data: {
+        id: "input-1",
+        title: "Choose trip details",
+        questions: [
+          { id: "destination", label: "Destination?", options: ["Paris", "Rome"] },
+          { id: "notes", question: "Anything else?", allowFreeText: true },
+        ],
+      },
+    });
+
+    let session = state.sessionsById[state.activeSessionId]!;
+    expect(session.structuredInputs[0]).toMatchObject({
+      id: "input-1",
+      title: "Choose trip details",
+      status: "pending",
+      questions: [
+        { id: "destination", label: "Destination?", options: ["Paris", "Rome"] },
+        { id: "notes", label: "Anything else?", allowFreeText: true },
+      ],
+    });
+
+    state = submitStructuredInput(state, "input-1");
+    session = state.sessionsById[state.activeSessionId]!;
+    expect(session.structuredInputs[0]!.status).toBe("submitted");
+  });
+
+  it("preserves expandable tool details and context usage", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "List files");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_item.added",
+      data: {
+        item: {
+          id: "tool-detail",
+          type: "tool_call",
+          name: "bash",
+          command: "ls apps/web",
+          files: ["apps/web/package.json"],
+        },
+      },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_item.done",
+      data: {
+        item: {
+          id: "tool-detail",
+          type: "tool_call",
+          name: "bash",
+          output: "package.json\nsrc",
+          exit_code: 0,
+        },
+      },
+    });
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.usage.updated",
+      data: { usage: { used_tokens: 12_000, max_tokens: 16_000 } },
+    });
+
+    const session = state.sessionsById[state.activeSessionId]!;
+    expect(session.toolCalls[0]).toMatchObject({
+      id: "tool-detail",
+      command: "ls apps/web",
+      output: "package.json\nsrc",
+      exitCode: 0,
+      filePaths: ["apps/web/package.json"],
+    });
+    expect(session.contextUsage).toEqual({ usedTokens: 12_000, maxTokens: 16_000 });
   });
 });

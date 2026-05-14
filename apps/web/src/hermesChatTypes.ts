@@ -15,6 +15,11 @@ export interface HermesChatMessage {
 
 export type HermesToolStatus = "running" | "completed" | "failed";
 
+export interface HermesContextUsage {
+  readonly usedTokens: number;
+  readonly maxTokens: number | null;
+}
+
 export interface HermesToolCall {
   readonly id: string;
   readonly name: string;
@@ -22,6 +27,35 @@ export interface HermesToolCall {
   readonly status: HermesToolStatus;
   readonly createdAt: string;
   readonly completedAt?: string | undefined;
+  readonly command?: string | undefined;
+  readonly output?: string | undefined;
+  readonly error?: string | undefined;
+  readonly exitCode?: number | undefined;
+  readonly filePaths: readonly string[];
+  readonly details?: string | undefined;
+}
+
+export interface HermesApprovalPrompt {
+  readonly id: string;
+  readonly action: string;
+  readonly detail?: string | undefined;
+  readonly status: "pending" | "approved" | "denied";
+  readonly createdAt: string;
+}
+
+export interface HermesStructuredInputQuestion {
+  readonly id: string;
+  readonly label: string;
+  readonly options: readonly string[];
+  readonly allowFreeText: boolean;
+}
+
+export interface HermesStructuredInputRequest {
+  readonly id: string;
+  readonly title: string;
+  readonly questions: readonly HermesStructuredInputQuestion[];
+  readonly status: "pending" | "submitted";
+  readonly createdAt: string;
 }
 
 export interface HermesSession {
@@ -33,6 +67,9 @@ export interface HermesSession {
   readonly responseId?: string | undefined;
   readonly messages: HermesChatMessage[];
   readonly toolCalls: HermesToolCall[];
+  readonly approvals: readonly HermesApprovalPrompt[];
+  readonly structuredInputs: readonly HermesStructuredInputRequest[];
+  readonly contextUsage?: HermesContextUsage | undefined;
   readonly draft: string;
   readonly isRunning: boolean;
   readonly activeAssistantMessageId?: string | undefined;
