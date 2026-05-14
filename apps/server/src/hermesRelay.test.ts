@@ -148,6 +148,95 @@ describe("Hermes relay", () => {
     });
   });
 
+  it("notifies WebSocket clients when the Gateway becomes unreachable and reachable again", async () => {
+    let healthy = true;
+    const hermesDir = await makeHermesFixture();
+    const server = startTestRelay(
+      async (url) => {
+        if (String(url) === "http://hermes.local/health") {
+          return healthy ? new Response("ok") : new Response("down", { status: 503 });
+        }
+        if (!healthy) throw new Error("ECONNREFUSED");
+        return Response.json({ data: [] });
+      },
+      {
+        fileAccess: { hermesDir },
+      },
+    );
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    const messages: Array<unknown> = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve(), { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+    ws.addEventListener("message", (event) => messages.push(JSON.parse(String(event.data))));
+
+    healthy = false;
+    const downResponse = await fetch(`http://127.0.0.1:${server.port}/api/hermes/v1/models`);
+    expect(downResponse.status).toBe(502);
+    const sessionsWhileDown = await fetch(`http://127.0.0.1:${server.port}/api/sessions`);
+    expect(sessionsWhileDown.status).toBe(200);
+    expect(await sessionsWhileDown.json()).toEqual([
+      { id: "abc", title: "First prompt", lastActivity: "2026-05-14T10:00:00Z" },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(messages).toContainEqual({ type: "gateway.status", status: "unreachable" });
+
+    healthy = true;
+    const healthResponse = await fetch(`http://127.0.0.1:${server.port}/health`);
+    expect(await healthResponse.json()).toEqual({ status: "ok", gateway: "reachable" });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    ws.close();
+    expect(messages).toContainEqual({ type: "gateway.status", status: "reachable" });
+  });
+
+  it("reports SSE stream interruptions to WebSocket clients", async () => {
+    const server = startTestRelay(async () => {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'event: response.created\ndata: {"id":"resp_1"}\n\n' +
+                  'event: response.content_part.delta\ndata: {"delta":"partial"}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    const messages: Array<unknown> = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve(), { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+    ws.addEventListener("message", (event) => messages.push(JSON.parse(String(event.data))));
+
+    await fetch(`http://127.0.0.1:${server.port}/api/hermes/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: "hello", stream: true }),
+    })
+      .then((response) => response.text())
+      .catch(() => undefined);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    ws.close();
+
+    expect(messages).toContainEqual({
+      type: "hermes.sse.interrupted",
+      error: {
+        code: "sse_stream_interrupted",
+        message: "Hermes SSE stream interrupted unexpectedly",
+      },
+    });
+  });
+
   it("lists skills and reads skill content from the Hermes skills directory", async () => {
     const hermesDir = await makeHermesFixture();
     const server = startTestRelay(async () => Response.json({}), {

@@ -36,6 +36,15 @@ interface WsClient {
   readonly socket: Duplex;
 }
 
+type GatewayStatus = "reachable" | "unreachable";
+
+interface GatewayStatusMonitor {
+  readonly current: () => GatewayStatus;
+  readonly refresh: () => Promise<GatewayStatus>;
+  readonly mark: (status: GatewayStatus) => void;
+  readonly stop: () => void;
+}
+
 const currentDir =
   typeof import.meta.dirname === "string"
     ? import.meta.dirname
@@ -164,23 +173,115 @@ function shouldBridgeSse(response: Response, bodyText: string | undefined): bool
 function bridgeSseBody(
   body: ReadableStream<Uint8Array>,
   broadcast: (event: HermesSseEvent) => void,
+  onInterrupted: (error: unknown) => void,
 ): ReadableStream<Uint8Array> {
   let remainder = "";
-  return body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
+  let sawTerminalEvent = false;
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read();
+        if (result.done) {
+          const finalText = remainder + textDecoder.decode();
+          const parsed = parseSseEvents(
+            finalText.endsWith("\n\n") ? finalText : `${finalText}\n\n`,
+          );
+          for (const event of parsed.events) {
+            if (isTerminalSseEvent(event)) sawTerminalEvent = true;
+            broadcast(event);
+          }
+          if (!sawTerminalEvent) {
+            onInterrupted(new Error("SSE stream ended before a terminal response event"));
+          }
+          controller.close();
+          return;
+        }
+
+        const chunk = result.value;
         controller.enqueue(chunk);
         const parsed = parseSseEvents(remainder + textDecoder.decode(chunk, { stream: true }));
         remainder = parsed.remainder;
-        for (const event of parsed.events) broadcast(event);
-      },
-      flush() {
-        const finalText = remainder + textDecoder.decode();
-        const parsed = parseSseEvents(finalText.endsWith("\n\n") ? finalText : `${finalText}\n\n`);
-        for (const event of parsed.events) broadcast(event);
-      },
-    }),
+        for (const event of parsed.events) {
+          if (isTerminalSseEvent(event)) sawTerminalEvent = true;
+          broadcast(event);
+        }
+      } catch (error) {
+        onInterrupted(error);
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+function isTerminalSseEvent(event: HermesSseEvent): boolean {
+  return (
+    event.data === "[DONE]" ||
+    event.event === "response.completed" ||
+    event.event === "response.failed" ||
+    event.event === "response.cancelled" ||
+    event.event === "response.canceled"
   );
+}
+
+function sseInterruptedMessage(_error: unknown): string {
+  return JSON.stringify({
+    type: "hermes.sse.interrupted",
+    error: {
+      code: "sse_stream_interrupted",
+      message: "Hermes SSE stream interrupted unexpectedly",
+    },
+  });
+}
+
+function createGatewayStatusMonitor(
+  client: HermesClient,
+  sendStatus: (status: GatewayStatus) => void,
+): GatewayStatusMonitor {
+  let status: GatewayStatus = "reachable";
+  let stopped = false;
+  let refreshInFlight: Promise<GatewayStatus> | undefined;
+
+  const mark = (nextStatus: GatewayStatus) => {
+    if (status === nextStatus) return;
+    status = nextStatus;
+    sendStatus(nextStatus);
+  };
+
+  const refresh = async () => {
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = client
+      .health()
+      .then((nextStatus) => {
+        mark(nextStatus);
+        return nextStatus;
+      })
+      .finally(() => {
+        refreshInFlight = undefined;
+      });
+    return refreshInFlight;
+  };
+
+  const interval = setInterval(() => {
+    if (!stopped) void refresh();
+  }, 5_000);
+  if (typeof (interval as NodeJS.Timeout).unref === "function") {
+    (interval as NodeJS.Timeout).unref();
+  }
+  void refresh();
+
+  return {
+    current: () => status,
+    refresh,
+    mark,
+    stop: () => {
+      stopped = true;
+      clearInterval(interval);
+    },
+  };
 }
 
 async function writeUpstreamBody(
@@ -188,6 +289,7 @@ async function writeUpstreamBody(
   upstream: Response,
   bodyText: string | undefined,
   broadcast: (event: HermesSseEvent) => void,
+  onInterrupted: (error: unknown) => void,
 ): Promise<void> {
   response.writeHead(
     upstream.status,
@@ -203,7 +305,7 @@ async function writeUpstreamBody(
   }
 
   const body = shouldBridgeSse(upstream, bodyText)
-    ? bridgeSseBody(upstream.body, broadcast)
+    ? bridgeSseBody(upstream.body, broadcast, onInterrupted)
     : upstream.body;
   Readable.fromWeb(body as never).pipe(response);
 }
@@ -266,9 +368,21 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
   const client = makeClient(options);
   const staticDir = options.staticDir ?? defaultStaticDir;
   const clients = new Set<Bun.ServerWebSocket<{ readonly id: string }>>();
+  const broadcastMessage = (message: string) => {
+    for (const ws of clients) ws.send(message);
+  };
   const broadcast = (event: HermesSseEvent) => {
     const message = JSON.stringify({ type: "hermes.sse", ...event });
-    for (const ws of clients) ws.send(message);
+    broadcastMessage(message);
+  };
+  const monitor = createGatewayStatusMonitor(client, (status) =>
+    broadcastMessage(JSON.stringify({ type: "gateway.status", status })),
+  );
+  const markGatewayUnreachable = () => monitor.mark("unreachable");
+  const markGatewayReachable = () => monitor.mark("reachable");
+  const reportSseInterrupted = (error: unknown) => {
+    markGatewayUnreachable();
+    broadcastMessage(sseInterruptedMessage(error));
   };
 
   const server = Bun.serve<{ readonly id: string }>({
@@ -289,7 +403,7 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
       }
 
       if (url.pathname === "/health") {
-        return jsonResponse({ status: "ok", gateway: await client.health() });
+        return jsonResponse({ status: "ok", gateway: await monitor.refresh() });
       }
 
       const fileAccessResponse = await handleHermesFileAccessRequest(request, options.fileAccess);
@@ -307,9 +421,10 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
               ...(body === undefined ? {} : { body }),
             },
           );
+          markGatewayReachable();
           const responseBody =
             upstream.body && shouldBridgeSse(upstream, body)
-              ? bridgeSseBody(upstream.body, broadcast)
+              ? bridgeSseBody(upstream.body, broadcast, reportSseInterrupted)
               : upstream.body;
           return new Response(responseBody, {
             status: upstream.status,
@@ -317,6 +432,7 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
             headers: client.proxyResponseHeaders(upstream.headers),
           });
         } catch (error) {
+          if (error instanceof HermesGatewayError) markGatewayUnreachable();
           const message =
             error instanceof HermesGatewayError ? error.message : "Hermes Gateway request failed";
           const code = error instanceof HermesGatewayError ? error.code : "gateway_error";
@@ -334,6 +450,7 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
       open(ws) {
         clients.add(ws);
         ws.send(JSON.stringify({ type: "relay.connected", id: ws.data.id }));
+        ws.send(JSON.stringify({ type: "gateway.status", status: monitor.current() }));
       },
       close(ws) {
         clients.delete(ws);
@@ -345,7 +462,13 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
   });
 
   console.log(`Hermes relay listening on http://${server.hostname}:${server.port}`);
-  return { port: server.port ?? options.port ?? 3773, stop: () => server.stop(true) };
+  return {
+    port: server.port ?? options.port ?? 3773,
+    stop: () => {
+      monitor.stop();
+      server.stop(true);
+    },
+  };
 }
 
 export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayServer {
@@ -355,16 +478,28 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
   const staticDir = options.staticDir ?? defaultStaticDir;
   const clients = new Set<WsClient>();
 
+  const broadcastMessage = (message: string) => {
+    for (const ws of clients) sendWs(ws, message);
+  };
   const broadcast = (event: HermesSseEvent) => {
     const message = JSON.stringify({ type: "hermes.sse", ...event });
-    for (const ws of clients) sendWs(ws, message);
+    broadcastMessage(message);
+  };
+  const monitor = createGatewayStatusMonitor(client, (status) =>
+    broadcastMessage(JSON.stringify({ type: "gateway.status", status })),
+  );
+  const markGatewayUnreachable = () => monitor.mark("unreachable");
+  const markGatewayReachable = () => monitor.mark("reachable");
+  const reportSseInterrupted = (error: unknown) => {
+    markGatewayUnreachable();
+    broadcastMessage(sseInterruptedMessage(error));
   };
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
     if (url.pathname === "/health") {
-      const gateway = await client.health();
+      const gateway = await monitor.refresh();
       writeJson(response, 200, { status: "ok", gateway });
       return;
     }
@@ -413,8 +548,10 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
           headers: nodeRequestHeaders(request),
           ...(body === undefined ? {} : { body }),
         });
-        await writeUpstreamBody(response, upstream, body, broadcast);
+        markGatewayReachable();
+        await writeUpstreamBody(response, upstream, body, broadcast, reportSseInterrupted);
       } catch (error) {
+        if (error instanceof HermesGatewayError) markGatewayUnreachable();
         writeGatewayError(response, error);
       }
       return;
@@ -450,6 +587,7 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
     const wsClient = { id: crypto.randomUUID(), socket };
     clients.add(wsClient);
     sendWs(wsClient, JSON.stringify({ type: "relay.connected", id: wsClient.id }));
+    sendWs(wsClient, JSON.stringify({ type: "gateway.status", status: monitor.current() }));
     socket.on("close", () => clients.delete(wsClient));
     socket.on("error", () => clients.delete(wsClient));
   });
@@ -460,5 +598,11 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
   console.log(`Hermes relay listening on http://${hostname ?? "0.0.0.0"}:${actualPort}`);
-  return { port: actualPort, stop: () => server.close() };
+  return {
+    port: actualPort,
+    stop: () => {
+      monitor.stop();
+      server.close();
+    },
+  };
 }
