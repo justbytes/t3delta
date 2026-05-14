@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -237,6 +237,132 @@ describe("Hermes relay", () => {
     });
   });
 
+  it("uses independent UTF-8 decoders for concurrent SSE streams", async () => {
+    const encoder = new TextEncoder();
+    let responseRequests = 0;
+    let firstController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const server = startTestRelay(async (url) => {
+      if (String(url).endsWith("/health")) return new Response("ok");
+      responseRequests += 1;
+      if (responseRequests === 1) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              firstController = controller;
+              controller.enqueue(
+                Uint8Array.from([
+                  ...encoder.encode("event: response.content_part.delta\ndata: "),
+                  0xe2,
+                ]),
+              );
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('event: response.completed\ndata: {"id":"resp_2"}\n\n'),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    const messages: Array<unknown> = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve(), { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+    ws.addEventListener("message", (event) => messages.push(JSON.parse(String(event.data))));
+
+    const firstResponse = await fetch(`http://127.0.0.1:${server.port}/api/hermes/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: "first", stream: true }),
+    });
+    const firstReader = firstResponse.body!.getReader();
+    await firstReader.read();
+
+    const secondResponse = await fetch(`http://127.0.0.1:${server.port}/api/hermes/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: "second", stream: true }),
+    });
+    expect(await secondResponse.text()).toContain("response.completed");
+
+    firstController?.enqueue(
+      Uint8Array.from([
+        0x82,
+        0xac,
+        ...encoder.encode('\n\nevent: response.completed\ndata: {"id":"resp_1"}\n\n'),
+      ]),
+    );
+    firstController?.close();
+    await firstReader.cancel().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    ws.close();
+
+    expect(messages).toContainEqual({
+      type: "hermes.sse",
+      event: "response.completed",
+      id: undefined,
+      retry: undefined,
+      data: { id: "resp_2" },
+    });
+  });
+
+  it("does not report SSE interruption when the downstream client cancels the stream", async () => {
+    const server = startTestRelay(async () => {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode('event: response.created\ndata: {"id":"resp_cancel"}\n\n'),
+            );
+          },
+          pull() {
+            return new Promise(() => undefined);
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    const messages: Array<unknown> = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve(), { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+    ws.addEventListener("message", (event) => messages.push(JSON.parse(String(event.data))));
+
+    const abortController = new AbortController();
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/hermes/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: "cancel me", stream: true }),
+      signal: abortController.signal,
+    });
+    const reader = response.body!.getReader();
+    await reader.read();
+    abortController.abort();
+    await reader.read().catch(() => undefined);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    ws.close();
+    expect(messages).not.toContainEqual({
+      type: "hermes.sse.interrupted",
+      error: {
+        code: "sse_stream_interrupted",
+        message: "Hermes SSE stream interrupted unexpectedly",
+      },
+    });
+  });
+
   it("lists skills and reads skill content from the Hermes skills directory", async () => {
     const hermesDir = await makeHermesFixture();
     const server = startTestRelay(async () => Response.json({}), {
@@ -252,6 +378,31 @@ describe("Hermes relay", () => {
     ]);
     expect(readResponse.status).toBe(200);
     expect(await readResponse.text()).toContain("# Pixel Art");
+  });
+
+  it("skips symlinked skill directories to avoid escaping the Hermes skills root", async () => {
+    const hermesDir = await makeHermesFixture();
+    const outsideDir = await mkdtemp(join(tmpdir(), "t3delta-outside-skill-"));
+    tempDirs.push(outsideDir);
+    await writeFile(
+      join(outsideDir, "SKILL.md"),
+      "---\nname: escaped-skill\ndescription: Should not be visible\n---\n# Escaped\n",
+    );
+    await symlink(outsideDir, join(hermesDir, "skills", "escaped-link"), "dir");
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: { hermesDir },
+    });
+
+    const listResponse = await fetch(`http://127.0.0.1:${server.port}/api/skills`);
+    const escapedReadResponse = await fetch(
+      `http://127.0.0.1:${server.port}/api/skills/escaped-skill`,
+    );
+
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toEqual([
+      { name: "pixel-art", description: "Make pixel art", category: "creative" },
+    ]);
+    expect(escapedReadResponse.status).toBe(404);
   });
 
   it("reads and writes Hermes memory files", async () => {

@@ -50,7 +50,6 @@ const currentDir =
     ? import.meta.dirname
     : dirname(fileURLToPath(import.meta.url));
 const defaultStaticDir = join(currentDir, "..", "..", "web", "dist");
-const textDecoder = new TextDecoder();
 
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -175,13 +174,16 @@ function bridgeSseBody(
   broadcast: (event: HermesSseEvent) => void,
   onInterrupted: (error: unknown) => void,
 ): ReadableStream<Uint8Array> {
+  const textDecoder = new TextDecoder();
   let remainder = "";
   let sawTerminalEvent = false;
+  let cancellationRequested = false;
   const reader = body.getReader();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const result = await reader.read();
+        if (cancellationRequested) return;
         if (result.done) {
           const finalText = remainder + textDecoder.decode();
           const parsed = parseSseEvents(
@@ -191,7 +193,7 @@ function bridgeSseBody(
             if (isTerminalSseEvent(event)) sawTerminalEvent = true;
             broadcast(event);
           }
-          if (!sawTerminalEvent) {
+          if (!sawTerminalEvent && !cancellationRequested) {
             onInterrupted(new Error("SSE stream ended before a terminal response event"));
           }
           controller.close();
@@ -207,11 +209,14 @@ function bridgeSseBody(
           broadcast(event);
         }
       } catch (error) {
-        onInterrupted(error);
-        controller.error(error);
+        if (!cancellationRequested) {
+          onInterrupted(error);
+          controller.error(error);
+        }
       }
     },
     async cancel(reason) {
+      cancellationRequested = true;
       await reader.cancel(reason).catch(() => undefined);
     },
   });

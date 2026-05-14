@@ -133,7 +133,7 @@ async function findSkillFiles(skillsDir: string): Promise<ReadonlyArray<SkillFil
     const files: Array<SkillFile> = [];
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
-      if (entry.isDirectory() || entry.isSymbolicLink()) {
+      if (entry.isDirectory()) {
         const skillPath = join(fullPath, "SKILL.md");
         if (await fileExists(skillPath)) {
           const content = await readFile(skillPath, "utf8");
