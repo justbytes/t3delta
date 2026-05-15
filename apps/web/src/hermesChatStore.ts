@@ -14,6 +14,7 @@ import {
   selectHermesSession,
   setDraft,
   setHermesSessionModel,
+  stopHermesSessionResponse,
   stopActiveResponse,
   submitStructuredInput,
   submitUserMessage,
@@ -36,6 +37,7 @@ interface HermesChatStore extends HermesChatState {
   readonly resolveApprovalPrompt: (approvalId: string, decision: "approved" | "denied") => void;
   readonly submitStructuredInput: (requestId: string) => void;
   readonly stopActiveResponse: () => void;
+  readonly stopSessionResponse: (sessionId: string) => void;
   readonly applyWsMessage: (message: HermesWsEnvelope) => void;
   readonly setWebsocketStatus: (status: HermesChatState["websocketStatus"]) => void;
   readonly setGatewayStatus: (status: HermesChatState["gatewayStatus"]) => void;
@@ -92,6 +94,8 @@ export const useHermesChatStore = create<HermesChatStore>((set) => ({
   submitStructuredInput: (requestId) =>
     set((state) => persistAndReturn(submitStructuredInput(state, requestId))),
   stopActiveResponse: () => set((state) => persistAndReturn(stopActiveResponse(state))),
+  stopSessionResponse: (sessionId) =>
+    set((state) => persistAndReturn(stopHermesSessionResponse(state, sessionId))),
   applyWsMessage: (message) =>
     set((state) => persistAndReturn(reduceHermesWsMessage(state, message))),
   setWebsocketStatus: (status) => set((state) => ({ ...state, websocketStatus: status })),

@@ -9,11 +9,13 @@ import {
   restoreDraftAfterError,
   setDraft,
   setHermesSessionModel,
+  stopHermesSessionResponse,
   stopActiveResponse,
   submitUserMessage,
   resolveApprovalPrompt,
   submitStructuredInput,
 } from "./hermesChatState";
+import type { HermesChatState, HermesSession } from "./hermesChatTypes";
 
 describe("Hermes chat state", () => {
   it("submits a user message optimistically and auto-titles the session", () => {
@@ -143,6 +145,117 @@ describe("Hermes chat state", () => {
     expect(assistant.text).toBe("partial");
     expect(assistant.streaming).toBe(false);
     expect(assistant.interrupted).toBe(true);
+  });
+
+  it("stops a targeted running session without switching the active session", () => {
+    const sessionA: HermesSession = {
+      ...createEmptyHermesSession("session-a", "2026-05-14T10:00:00.000Z"),
+      isRunning: true,
+      activeAssistantMessageId: "assistant-a",
+      messages: [
+        { id: "user-a", role: "user" as const, text: "A", createdAt: "2026-05-14T10:00:00.000Z" },
+        {
+          id: "assistant-a",
+          role: "assistant" as const,
+          text: "partial A",
+          createdAt: "2026-05-14T10:00:01.000Z",
+          streaming: true,
+        },
+      ],
+    };
+    const sessionB: HermesSession = {
+      ...createEmptyHermesSession("session-b", "2026-05-14T10:01:00.000Z"),
+      isRunning: true,
+      activeAssistantMessageId: "assistant-b",
+      messages: [
+        { id: "user-b", role: "user" as const, text: "B", createdAt: "2026-05-14T10:01:00.000Z" },
+        {
+          id: "assistant-b",
+          role: "assistant" as const,
+          text: "partial B",
+          createdAt: "2026-05-14T10:01:01.000Z",
+          streaming: true,
+        },
+      ],
+    };
+    const state: HermesChatState = {
+      ...createInitialHermesChatState(),
+      sessionIds: [sessionA.id, sessionB.id],
+      sessionsById: { [sessionA.id]: sessionA, [sessionB.id]: sessionB },
+      activeSessionId: sessionB.id,
+      requestInFlight: true,
+    };
+
+    const next = stopHermesSessionResponse(state, sessionA.id);
+
+    expect(next.activeSessionId).toBe(sessionB.id);
+    expect(next.requestInFlight).toBe(true);
+    expect(next.sessionsById[sessionA.id]!.isRunning).toBe(false);
+    expect(next.sessionsById[sessionA.id]!.messages.at(-1)).toMatchObject({
+      text: "partial A",
+      streaming: false,
+      interrupted: true,
+    });
+    expect(next.sessionsById[sessionB.id]!.isRunning).toBe(true);
+    expect(next.sessionsById[sessionB.id]!.messages.at(-1)).toMatchObject({
+      text: "partial B",
+      streaming: true,
+    });
+  });
+
+  it("does not corrupt the fallback active session when an aborted deleted session settles late", () => {
+    const runningSession: HermesSession = {
+      ...createEmptyHermesSession("running-session"),
+      isRunning: true,
+      activeAssistantMessageId: "assistant-running",
+      messages: [
+        {
+          id: "assistant-running",
+          role: "assistant" as const,
+          text: "partial",
+          createdAt: "2026-05-14T10:00:00.000Z",
+          streaming: true,
+        },
+      ],
+    };
+    const fallbackSession: HermesSession = {
+      ...createEmptyHermesSession("fallback-session"),
+      isRunning: true,
+      activeAssistantMessageId: "assistant-fallback",
+      messages: [
+        {
+          id: "assistant-fallback",
+          role: "assistant" as const,
+          text: "keep streaming",
+          createdAt: "2026-05-14T10:01:00.000Z",
+          streaming: true,
+        },
+      ],
+    };
+    let state: HermesChatState = {
+      ...createInitialHermesChatState(),
+      sessionIds: [runningSession.id, fallbackSession.id],
+      sessionsById: {
+        [runningSession.id]: runningSession,
+        [fallbackSession.id]: fallbackSession,
+      },
+      activeSessionId: runningSession.id,
+      requestInFlight: true,
+    };
+
+    state = deleteHermesSession(
+      stopHermesSessionResponse(state, runningSession.id),
+      runningSession.id,
+    );
+    state = stopHermesSessionResponse(state, runningSession.id);
+
+    expect(state.activeSessionId).toBe(fallbackSession.id);
+    expect(state.sessionsById[runningSession.id]).toBeUndefined();
+    expect(state.sessionsById[fallbackSession.id]!.isRunning).toBe(true);
+    expect(state.sessionsById[fallbackSession.id]!.messages.at(-1)).toMatchObject({
+      text: "keep streaming",
+      streaming: true,
+    });
   });
 
   it("restores failed message text to the composer draft", () => {

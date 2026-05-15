@@ -346,11 +346,21 @@ export function markRequestInFlight(
 }
 
 export function stopActiveResponse(state: HermesChatState): HermesChatState {
-  const session = state.sessionsById[state.activeSessionId];
+  return stopHermesSessionResponse(state, state.activeSessionId);
+}
+
+export function stopHermesSessionResponse(
+  state: HermesChatState,
+  sessionId: string,
+): HermesChatState {
+  const session = state.sessionsById[sessionId];
   if (!session) return { ...state, requestInFlight: false };
   const now = nowIso();
   return updateSession(
-    { ...state, requestInFlight: false },
+    {
+      ...state,
+      requestInFlight: state.activeSessionId === sessionId ? false : state.requestInFlight,
+    },
     {
       ...session,
       isRunning: false,

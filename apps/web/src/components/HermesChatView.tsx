@@ -346,6 +346,7 @@ export default function HermesChatView() {
     resolveApprovalPrompt,
     submitStructuredInput,
     stopActiveResponse,
+    stopSessionResponse,
     applyWsMessage,
     setWebsocketStatus,
     setGatewayStatus,
@@ -361,6 +362,11 @@ export default function HermesChatView() {
   );
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
   const [sessionPendingDelete, setSessionPendingDelete] = useState<HermesSession | null>(null);
+  const [deleteFlowState, setDeleteFlowState] = useState<{
+    sessionId: string;
+    phase: "stopping" | "deleting";
+    error?: string;
+  } | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [installedSkills, setInstalledSkills] = useState<readonly HermesSkillSummary[]>([]);
@@ -677,6 +683,7 @@ export default function HermesChatView() {
 
   const sendText = useCallback(
     async (text: string) => {
+      const sendingSessionId = activeSession.id;
       failedTextRef.current = text;
       submitUserMessage(text);
       setRequestInFlight(true);
@@ -703,7 +710,7 @@ export default function HermesChatView() {
         await response.text();
       } catch (error) {
         if (controller.signal.aborted) {
-          stopActiveResponse();
+          stopSessionResponse(sendingSessionId);
           return;
         }
         restoreDraftAfterError(
@@ -717,11 +724,12 @@ export default function HermesChatView() {
     },
     [
       activeSession.conversationId,
+      activeSession.id,
       activeSession.responseId,
       restoreDraftAfterError,
       selectedModel,
       setRequestInFlight,
-      stopActiveResponse,
+      stopSessionResponse,
       submitUserMessage,
     ],
   );
@@ -736,6 +744,15 @@ export default function HermesChatView() {
     abortRef.current?.abort();
     stopActiveResponse();
   }, [stopActiveResponse]);
+  const waitUntilSessionStopped = useCallback(async (sessionId: string) => {
+    const deadline = Date.now() + 3_000;
+    while (Date.now() < deadline) {
+      const session = useHermesChatStore.getState().sessionsById[sessionId];
+      if (!session?.isRunning) return true;
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+    return false;
+  }, []);
 
   const handleScroll = useCallback(() => {
     const node = scrollRef.current;
@@ -792,10 +809,49 @@ export default function HermesChatView() {
   }, [renameSessionTitle, renamingSessionId, renamingTitle]);
   const confirmDeleteSession = useCallback(() => {
     if (!sessionPendingDelete) return;
-    if (sessionPendingDelete.isRunning) stopResponse();
-    deleteSession(sessionPendingDelete.id);
-    setSessionPendingDelete(null);
-  }, [deleteSession, sessionPendingDelete, stopResponse]);
+    const target = useHermesChatStore.getState().sessionsById[sessionPendingDelete.id];
+    if (!target) {
+      setSessionPendingDelete(null);
+      setDeleteFlowState(null);
+      return;
+    }
+
+    const run = async () => {
+      try {
+        if (target.isRunning) {
+          setDeleteFlowState({ sessionId: target.id, phase: "stopping" });
+          if (target.id !== useHermesChatStore.getState().activeSessionId) {
+            throw new Error(
+              "This session is still running. Open it and stop the active turn before deleting.",
+            );
+          }
+          if (!abortRef.current) {
+            throw new Error(
+              "Unable to stop this running turn because no active request is attached.",
+            );
+          }
+          abortRef.current.abort();
+          stopSessionResponse(target.id);
+          const stopped = await waitUntilSessionStopped(target.id);
+          if (!stopped) {
+            throw new Error("Timed out while stopping the running Hermes turn.");
+          }
+        }
+        setDeleteFlowState({ sessionId: target.id, phase: "deleting" });
+        deleteSession(target.id);
+        setSessionPendingDelete(null);
+        setDeleteFlowState(null);
+      } catch (error) {
+        setDeleteFlowState({
+          sessionId: target.id,
+          phase: "stopping",
+          error: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
+        });
+      }
+    };
+
+    void run();
+  }, [deleteSession, sessionPendingDelete, stopSessionResponse, waitUntilSessionStopped]);
   const executeSlashCommand = useCallback(
     (command: HermesSlashCommand) => {
       if (command.id === "model") {
@@ -1116,7 +1172,11 @@ export default function HermesChatView() {
       />
       <DeleteSessionDialog
         session={sessionPendingDelete}
-        onCancel={() => setSessionPendingDelete(null)}
+        flowState={deleteFlowState}
+        onCancel={() => {
+          setSessionPendingDelete(null);
+          setDeleteFlowState(null);
+        }}
         onConfirm={confirmDeleteSession}
       />
     </div>
@@ -1202,13 +1262,17 @@ const HermesSessionRow = memo(function HermesSessionRow(props: {
 
 function DeleteSessionDialog(props: {
   session: HermesSession | null;
+  flowState: { sessionId: string; phase: "stopping" | "deleting"; error?: string } | null;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const activeFlow =
+    props.session && props.flowState?.sessionId === props.session.id ? props.flowState : null;
+  const busy = Boolean(activeFlow && !activeFlow.error);
   return (
     <Dialog
       open={Boolean(props.session)}
-      onOpenChange={(open) => (!open ? props.onCancel() : null)}
+      onOpenChange={(open) => (!open && !busy ? props.onCancel() : null)}
     >
       <DialogPopup>
         <DialogPanel>
@@ -1223,12 +1287,41 @@ function DeleteSessionDialog(props: {
                 : " This action cannot be undone."}
             </DialogDescription>
           </DialogHeader>
+          {activeFlow ? (
+            <div
+              className={cn(
+                "rounded-lg border px-3 py-2 text-sm",
+                activeFlow.error
+                  ? "border-red-500/35 bg-red-500/10 text-red-100"
+                  : "border-amber-400/35 bg-amber-400/10 text-amber-100",
+              )}
+              role={activeFlow.error ? "alert" : "status"}
+            >
+              {activeFlow.error ? (
+                activeFlow.error
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2Icon className="size-4 animate-spin" />
+                  {activeFlow.phase === "stopping"
+                    ? "Stopping the running Hermes turn before deleting..."
+                    : "Deleting session..."}
+                </span>
+              )}
+            </div>
+          ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={props.onCancel}>
+            <Button variant="outline" onClick={props.onCancel} disabled={busy}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={props.onConfirm}>
-              Delete session
+            <Button variant="destructive" onClick={props.onConfirm} disabled={busy}>
+              {busy ? (
+                <>
+                  <Loader2Icon className="size-4 animate-spin" />
+                  {activeFlow?.phase === "stopping" ? "Stopping..." : "Deleting..."}
+                </>
+              ) : (
+                "Delete session"
+              )}
             </Button>
           </DialogFooter>
         </DialogPanel>
