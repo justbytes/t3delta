@@ -8,12 +8,15 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
+  DownloadIcon,
   FileIcon,
   Loader2Icon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
+  SearchIcon,
   SendIcon,
+  SparklesIcon,
   SquareIcon,
   Trash2Icon,
   WrenchIcon,
@@ -34,6 +37,14 @@ import { cn } from "~/lib/utils";
 import { isElectron } from "../env";
 import { sanitizeErrorMessage } from "../hermesChatState";
 import { useHermesChatStore } from "../hermesChatStore";
+import {
+  buildHermesSlashCommands,
+  filterHermesSkills,
+  filterHermesSlashCommands,
+  hermesSkillsHubCatalog,
+  normalizeHermesSkills,
+} from "../hermesSkills";
+import type { HermesHubSkill, HermesSkillSummary, HermesSlashCommand } from "../hermesSkills";
 import type {
   HermesApprovalPrompt,
   HermesChatMessage,
@@ -95,6 +106,21 @@ async function readJsonError(response: Response): Promise<string> {
   }
 }
 
+function normalizeHermesModels(body: unknown): string[] {
+  const records = (body && typeof body === "object" ? body : {}) as { data?: unknown };
+  const raw = Array.isArray(records.data) ? records.data : Array.isArray(body) ? body : [];
+  return raw
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        const candidate = entry as { id?: unknown; name?: unknown; model?: unknown };
+        return candidate.id ?? candidate.name ?? candidate.model;
+      }
+      return undefined;
+    })
+    .filter((model): model is string => typeof model === "string" && model.length > 0);
+}
+
 export default function HermesChatView() {
   const {
     activeSessionId,
@@ -133,9 +159,33 @@ export default function HermesChatView() {
   const [sessionPendingDelete, setSessionPendingDelete] = useState<HermesSession | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
+  const [installedSkills, setInstalledSkills] = useState<readonly HermesSkillSummary[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(true);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [skillsPanelOpen, setSkillsPanelOpen] = useState(true);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelOptions, setModelOptions] = useState<readonly string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const failedTextRef = useRef("");
+
+  const refreshSkills = useCallback(async () => {
+    setSkillsLoading(true);
+    setSkillsError(null);
+    try {
+      const response = await fetch(resolveApiUrl("/api/skills"));
+      if (!response.ok) throw new Error(await readJsonError(response));
+      setInstalledSkills(normalizeHermesSkills(await response.json()));
+    } catch (error) {
+      setInstalledSkills([]);
+      setSkillsError(sanitizeErrorMessage(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -162,6 +212,38 @@ export default function HermesChatView() {
       disposed = true;
     };
   }, [setGatewayStatus, syncRelaySessions]);
+
+  useEffect(() => {
+    void refreshSkills();
+  }, [refreshSkills]);
+
+  useEffect(() => {
+    if (!modelPickerOpen || modelOptions.length > 0) return;
+    let disposed = false;
+    setModelsLoading(true);
+    setModelError(null);
+    void fetch(resolveApiUrl("/api/hermes/v1/models"))
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readJsonError(response));
+        return response.json();
+      })
+      .then((body) => {
+        if (!disposed) setModelOptions(normalizeHermesModels(body));
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setModelError(
+            sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
+          );
+        }
+      })
+      .finally(() => {
+        if (!disposed) setModelsLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [modelOptions.length, modelPickerOpen]);
 
   useEffect(() => {
     const query = sessionSearch.trim();
@@ -248,56 +330,62 @@ export default function HermesChatView() {
     gatewayStatus === "unreachable" ||
     activeSession.draft.trim().length === 0;
 
+  const sendText = useCallback(
+    async (text: string) => {
+      failedTextRef.current = text;
+      submitUserMessage(text);
+      setRequestInFlight(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const response = await fetch(resolveApiUrl("/api/hermes/v1/responses"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            input: text,
+            stream: true,
+            ...(selectedModel ? { model: selectedModel } : {}),
+            ...(activeSession.conversationId
+              ? { conversation_id: activeSession.conversationId }
+              : {}),
+            ...(activeSession.responseId ? { previous_response_id: activeSession.responseId } : {}),
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(await readJsonError(response));
+        }
+        await response.text();
+      } catch (error) {
+        if (controller.signal.aborted) {
+          stopActiveResponse();
+          return;
+        }
+        restoreDraftAfterError(
+          failedTextRef.current,
+          sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
+        );
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
+        setRequestInFlight(false);
+      }
+    },
+    [
+      activeSession.conversationId,
+      activeSession.responseId,
+      restoreDraftAfterError,
+      selectedModel,
+      setRequestInFlight,
+      stopActiveResponse,
+      submitUserMessage,
+    ],
+  );
+
   const sendMessage = useCallback(async () => {
     const text = activeSession.draft.trim();
     if (!text || sendDisabled) return;
-    failedTextRef.current = text;
-    submitUserMessage(text);
-    setRequestInFlight(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const response = await fetch(resolveApiUrl("/api/hermes/v1/responses"), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          input: text,
-          stream: true,
-          ...(activeSession.conversationId
-            ? { conversation_id: activeSession.conversationId }
-            : {}),
-          ...(activeSession.responseId ? { previous_response_id: activeSession.responseId } : {}),
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(await readJsonError(response));
-      }
-      await response.text();
-    } catch (error) {
-      if (controller.signal.aborted) {
-        stopActiveResponse();
-        return;
-      }
-      restoreDraftAfterError(
-        failedTextRef.current,
-        sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
-      );
-    } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setRequestInFlight(false);
-    }
-  }, [
-    activeSession.conversationId,
-    activeSession.draft,
-    activeSession.isRunning,
-    activeSession.responseId,
-    restoreDraftAfterError,
-    sendDisabled,
-    setRequestInFlight,
-    stopActiveResponse,
-    submitUserMessage,
-  ]);
+    await sendText(text);
+  }, [activeSession.draft, sendDisabled, sendText]);
 
   const stopResponse = useCallback(() => {
     abortRef.current?.abort();
@@ -363,6 +451,104 @@ export default function HermesChatView() {
     deleteSession(sessionPendingDelete.id);
     setSessionPendingDelete(null);
   }, [deleteSession, sessionPendingDelete, stopResponse]);
+  const executeSlashCommand = useCallback(
+    (command: HermesSlashCommand) => {
+      if (command.id === "model") {
+        setModelPickerOpen(true);
+        setDraft(activeSession.id, "");
+        return;
+      }
+      if (command.id === "new") {
+        createSession();
+        return;
+      }
+      if (command.id === "clear") {
+        setDraft(activeSession.id, "");
+        return;
+      }
+      if (command.kind === "skill" && command.skill) {
+        if (gatewayStatus === "unreachable" || requestInFlight || activeSession.isRunning) return;
+        void sendText(`/${command.skill.name}`);
+      }
+    },
+    [
+      activeSession.id,
+      activeSession.isRunning,
+      createSession,
+      gatewayStatus,
+      requestInFlight,
+      sendText,
+      setDraft,
+    ],
+  );
+  const insertSkillReference = useCallback(
+    (skill: HermesSkillSummary) => {
+      const current = activeSession.draft;
+      const next = current.replace(
+        /(?:^|\s)\$[^\s$]*$/,
+        (match) => `${match.startsWith(" ") ? " " : ""}$${skill.name} `,
+      );
+      setDraft(activeSession.id, next === current ? `${current}$${skill.name} ` : next);
+    },
+    [activeSession.draft, activeSession.id, setDraft],
+  );
+  const installHubSkill = useCallback(
+    async (skill: HermesHubSkill) => {
+      setSkillsError(null);
+      try {
+        const response = await fetch(resolveApiUrl("/api/skills/install"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ identifier: skill.identifier, category: skill.category }),
+        });
+        if (!response.ok) throw new Error(await readJsonError(response));
+        const body = (await response.json().catch(() => ({ success: true }))) as {
+          success?: unknown;
+          error?: unknown;
+        };
+        if (body.success === false) {
+          throw new Error(typeof body.error === "string" ? body.error : "Skill install failed");
+        }
+        await refreshSkills();
+      } catch (error) {
+        setSkillsError(
+          `Unable to install ${skill.name}: ${sanitizeErrorMessage(
+            error instanceof Error ? error.message : String(error),
+          )}`,
+        );
+      }
+    },
+    [refreshSkills],
+  );
+  const uninstallSkill = useCallback(
+    async (skill: HermesSkillSummary) => {
+      setSkillsError(null);
+      try {
+        const response = await fetch(
+          resolveApiUrl(`/api/skills/${encodeURIComponent(skill.name)}`),
+          {
+            method: "DELETE",
+          },
+        );
+        if (!response.ok) throw new Error(await readJsonError(response));
+        const body = (await response.json().catch(() => ({ success: true }))) as {
+          success?: unknown;
+          error?: unknown;
+        };
+        if (body.success === false) {
+          throw new Error(typeof body.error === "string" ? body.error : "Skill uninstall failed");
+        }
+        await refreshSkills();
+      } catch (error) {
+        setSkillsError(
+          `Unable to uninstall ${skill.name}: ${sanitizeErrorMessage(
+            error instanceof Error ? error.message : String(error),
+          )}`,
+        );
+      }
+    },
+    [refreshSkills],
+  );
 
   return (
     <div className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
@@ -371,7 +557,10 @@ export default function HermesChatView() {
           activeSession={activeSession}
           gatewayStatus={gatewayStatus}
           websocketStatus={websocketStatus}
+          selectedModel={selectedModel}
           onNewSession={createSession}
+          onOpenModelPicker={() => setModelPickerOpen(true)}
+          onToggleSkillsPanel={() => setSkillsPanelOpen((value) => !value)}
         />
         <div className="flex min-h-0 flex-1">
           <aside className="hidden w-64 shrink-0 border-r border-border/60 bg-card/20 p-3 lg:block">
@@ -519,13 +708,38 @@ export default function HermesChatView() {
               isRunning={activeSession.isRunning}
               requestInFlight={requestInFlight}
               gatewayDown={gatewayStatus === "unreachable"}
+              installedSkills={installedSkills}
+              onSlashCommand={executeSlashCommand}
+              onSkillReference={insertSkillReference}
               onDraftChange={(draft) => setDraft(activeSession.id, draft)}
               onSend={sendMessage}
               onStop={stopResponse}
             />
           </main>
+          {skillsPanelOpen ? (
+            <HermesSkillsPanel
+              installedSkills={installedSkills}
+              loading={skillsLoading}
+              error={skillsError}
+              onRefresh={refreshSkills}
+              onInstall={installHubSkill}
+              onUninstall={uninstallSkill}
+            />
+          ) : null}
         </div>
       </div>
+      <HermesModelPickerDialog
+        open={modelPickerOpen}
+        models={modelOptions}
+        loading={modelsLoading}
+        error={modelError}
+        selectedModel={selectedModel}
+        onClose={() => setModelPickerOpen(false)}
+        onSelect={(model) => {
+          setSelectedModel(model);
+          setModelPickerOpen(false);
+        }}
+      />
       <DeleteSessionDialog
         session={sessionPendingDelete}
         onCancel={() => setSessionPendingDelete(null)}
@@ -653,7 +867,10 @@ const HermesHeader = memo(function HermesHeader(props: {
   activeSession: HermesSession;
   gatewayStatus: string;
   websocketStatus: string;
+  selectedModel: string | null;
   onNewSession: () => void;
+  onOpenModelPicker: () => void;
+  onToggleSkillsPanel: () => void;
 }) {
   return (
     <header
@@ -690,10 +907,20 @@ const HermesHeader = memo(function HermesHeader(props: {
             </div>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={props.onNewSession}>
-          <PlusIcon className="size-4" />
-          New chat
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" variant="outline" onClick={props.onOpenModelPicker}>
+            <SparklesIcon className="size-4" />
+            {props.selectedModel ?? "Model"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={props.onToggleSkillsPanel}>
+            <WrenchIcon className="size-4" />
+            Skills
+          </Button>
+          <Button size="sm" variant="outline" onClick={props.onNewSession}>
+            <PlusIcon className="size-4" />
+            New chat
+          </Button>
+        </div>
       </div>
     </header>
   );
@@ -1165,12 +1392,262 @@ function ImageLightbox({
   );
 }
 
+function HermesSkillsPanel(props: {
+  installedSkills: readonly HermesSkillSummary[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onInstall: (skill: HermesHubSkill) => Promise<void>;
+  onUninstall: (skill: HermesSkillSummary) => Promise<void>;
+}) {
+  const installedNames = new Set(props.installedSkills.map((skill) => skill.name));
+  return (
+    <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border/60 bg-card/20 p-3 xl:block">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/65">
+            Hermes skills
+          </p>
+          <p className="text-[11px] text-muted-foreground/55">Installed skills and Skills Hub</p>
+        </div>
+        <Button size="icon-xs" variant="ghost" onClick={props.onRefresh} title="Refresh skills">
+          <RefreshCwIcon className={cn("size-3.5", props.loading ? "animate-spin" : null)} />
+        </Button>
+      </div>
+      {props.error ? (
+        <div className="mb-3 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+          <p className="font-medium">Skill operation failed</p>
+          <p className="mt-1 text-red-100/75">{props.error}</p>
+        </div>
+      ) : null}
+      <section>
+        <h2 className="mb-2 text-sm font-medium">Installed</h2>
+        {props.loading ? (
+          <div className="rounded-lg border border-border/50 px-3 py-4 text-center text-xs text-muted-foreground">
+            Loading installed skills…
+          </div>
+        ) : props.installedSkills.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border/50 px-3 py-4 text-center text-xs text-muted-foreground">
+            No skills installed. Browse the Skills Hub below; slash commands still include
+            built-ins.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {props.installedSkills.map((skill) => (
+              <div
+                key={skill.name}
+                className="rounded-lg border border-border/45 bg-background/40 p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{skill.name}</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
+                      {skill.category}
+                    </p>
+                  </div>
+                  <Button size="xs" variant="outline" onClick={() => void props.onUninstall(skill)}>
+                    Uninstall
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground/75">{skill.description}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="mt-5">
+        <h2 className="mb-2 text-sm font-medium">Skills Hub</h2>
+        <div className="space-y-2">
+          {hermesSkillsHubCatalog.map((skill) => {
+            const installed = installedNames.has(skill.name);
+            return (
+              <div
+                key={skill.identifier}
+                className="rounded-lg border border-border/45 bg-background/40 p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{skill.name}</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
+                      {skill.category} • {skill.trustTier}
+                    </p>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant={installed ? "secondary" : "outline"}
+                    disabled={installed}
+                    onClick={() => void props.onInstall(skill)}
+                  >
+                    <DownloadIcon className="size-3" />
+                    {installed ? "Installed" : "Install"}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground/75">{skill.description}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function HermesModelPickerDialog(props: {
+  open: boolean;
+  models: readonly string[];
+  loading: boolean;
+  error: string | null;
+  selectedModel: string | null;
+  onClose: () => void;
+  onSelect: (model: string) => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={(open) => (!open ? props.onClose() : null)}>
+      <DialogPopup>
+        <DialogPanel>
+          <DialogHeader>
+            <DialogTitle>Select Hermes model</DialogTitle>
+            <DialogDescription>
+              Choose the model for subsequent messages in this session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 space-y-2 overflow-y-auto py-2">
+            {props.loading ? (
+              <p className="text-sm text-muted-foreground">Loading models…</p>
+            ) : props.error ? (
+              <p className="rounded-lg border border-red-500/35 bg-red-500/10 p-3 text-sm text-red-100">
+                {props.error}
+              </p>
+            ) : props.models.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No models returned by Hermes.</p>
+            ) : (
+              props.models.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm",
+                    props.selectedModel === model
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-secondary",
+                  )}
+                  onClick={() => props.onSelect(model)}
+                >
+                  <span>{model}</span>
+                  {props.selectedModel === model ? <CheckIcon className="size-4" /> : null}
+                </button>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={props.onClose}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function HermesSlashCommandMenu(props: {
+  commands: readonly HermesSlashCommand[];
+  selectedIndex: number;
+  onSelect: (command: HermesSlashCommand) => void;
+}) {
+  return (
+    <div className="mx-auto mt-2 max-w-3xl rounded-xl border border-border bg-popover p-2 shadow-lg">
+      <div className="mb-1 px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        Slash commands
+      </div>
+      <div className="max-h-64 overflow-auto">
+        {props.commands.length > 0 ? (
+          props.commands.map((command, index) => (
+            <button
+              key={command.id}
+              type="button"
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs",
+                index === props.selectedIndex
+                  ? "bg-secondary text-foreground"
+                  : "hover:bg-secondary",
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => props.onSelect(command)}
+            >
+              <SparklesIcon className="mt-0.5 size-3.5 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block font-mono font-medium">{command.name}</span>
+                <span className="mt-0.5 block text-muted-foreground/75">{command.description}</span>
+              </span>
+              <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {command.kind === "skill" ? command.skill?.category : "built-in"}
+              </span>
+            </button>
+          ))
+        ) : (
+          <p className="px-2 py-3 text-xs text-muted-foreground">No slash commands match.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HermesSkillSearchMenu(props: {
+  skills: readonly HermesSkillSummary[];
+  selectedIndex: number;
+  onSelect: (skill: HermesSkillSummary) => void;
+}) {
+  return (
+    <div className="mx-auto mt-2 max-w-3xl rounded-xl border border-border bg-popover p-2 shadow-lg">
+      <div className="mb-1 flex items-center gap-1 px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        <SearchIcon className="size-3" />
+        Skill search
+      </div>
+      <div className="max-h-64 overflow-auto">
+        {props.skills.length > 0 ? (
+          props.skills.map((skill, index) => (
+            <button
+              key={skill.name}
+              type="button"
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs",
+                index === props.selectedIndex
+                  ? "bg-secondary text-foreground"
+                  : "hover:bg-secondary",
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => props.onSelect(skill)}
+            >
+              <WrenchIcon className="mt-0.5 size-3.5 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">${skill.name}</span>
+                <span className="mt-0.5 block text-muted-foreground/75">{skill.description}</span>
+              </span>
+              <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {skill.category}
+              </span>
+            </button>
+          ))
+        ) : (
+          <p className="px-2 py-3 text-xs text-muted-foreground">
+            No installed Hermes skills match. Install one from the Skills Hub.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HermesComposer(props: {
   draft: string;
   disabled: boolean;
   isRunning: boolean;
   requestInFlight: boolean;
   gatewayDown: boolean;
+  installedSkills: readonly HermesSkillSummary[];
+  onSlashCommand: (command: HermesSlashCommand) => void;
+  onSkillReference: (skill: HermesSkillSummary) => void;
   onDraftChange: (draft: string) => void;
   onSend: () => void;
   onStop: () => void;
@@ -1178,7 +1655,20 @@ function HermesComposer(props: {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionFiles, setMentionFiles] = useState<string[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [skillQuery, setSkillQuery] = useState<string | null>(null);
+  const [skillIndex, setSkillIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const slashCommands = useMemo(
+    () =>
+      filterHermesSlashCommands(buildHermesSlashCommands(props.installedSkills), slashQuery ?? ""),
+    [props.installedSkills, slashQuery],
+  );
+  const skillResults = useMemo(
+    () => filterHermesSkills(props.installedSkills, skillQuery ?? ""),
+    [props.installedSkills, skillQuery],
+  );
 
   useEffect(() => {
     if (mentionQuery === null) {
@@ -1208,6 +1698,16 @@ function HermesComposer(props: {
     setMentionQuery(match ? (match[1] ?? "") : null);
   }, []);
 
+  const updateCommandQueries = useCallback((value: string, cursor: number) => {
+    const prefix = value.slice(0, cursor);
+    const slashMatch = prefix.match(/(?:^|\s)\/([^\s/]*)$/);
+    const skillMatch = prefix.match(/(?:^|\s)\$([^\s$]*)$/);
+    setSlashQuery(slashMatch ? (slashMatch[1] ?? "") : null);
+    setSkillQuery(skillMatch ? (skillMatch[1] ?? "") : null);
+    setSlashIndex(0);
+    setSkillIndex(0);
+  }, []);
+
   const insertMention = useCallback(
     (path: string) => {
       const node = textareaRef.current;
@@ -1224,6 +1724,29 @@ function HermesComposer(props: {
       window.requestAnimationFrame(() => node?.focus());
     },
     [props],
+  );
+
+  const closeCommandMenus = useCallback(() => {
+    setSlashQuery(null);
+    setSkillQuery(null);
+  }, []);
+
+  const chooseSlashCommand = useCallback(
+    (command: HermesSlashCommand) => {
+      closeCommandMenus();
+      props.onSlashCommand(command);
+      window.requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [closeCommandMenus, props],
+  );
+
+  const chooseSkill = useCallback(
+    (skill: HermesSkillSummary) => {
+      closeCommandMenus();
+      props.onSkillReference(skill);
+      window.requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [closeCommandMenus, props],
   );
 
   return (
@@ -1249,8 +1772,55 @@ function HermesComposer(props: {
           onChange={(event) => {
             props.onDraftChange(event.target.value);
             updateMentionQuery(event.target.value, event.target.selectionStart);
+            updateCommandQueries(event.target.value, event.target.selectionStart);
           }}
           onKeyDown={(event) => {
+            if (slashQuery !== null) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSlashIndex((value) =>
+                  Math.min(value + 1, Math.max(0, slashCommands.length - 1)),
+                );
+                return;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setSlashIndex((value) => Math.max(0, value - 1));
+                return;
+              }
+              if ((event.key === "Enter" || event.key === "Tab") && slashCommands[slashIndex]) {
+                event.preventDefault();
+                chooseSlashCommand(slashCommands[slashIndex]);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setSlashQuery(null);
+                return;
+              }
+            }
+            if (skillQuery !== null) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSkillIndex((value) => Math.min(value + 1, Math.max(0, skillResults.length - 1)));
+                return;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setSkillIndex((value) => Math.max(0, value - 1));
+                return;
+              }
+              if ((event.key === "Enter" || event.key === "Tab") && skillResults[skillIndex]) {
+                event.preventDefault();
+                chooseSkill(skillResults[skillIndex]);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setSkillQuery(null);
+                return;
+              }
+            }
             if (mentionQuery !== null && mentionFiles.length > 0 && event.key === "Tab") {
               event.preventDefault();
               insertMention(mentionFiles[0]!);
@@ -1287,6 +1857,20 @@ function HermesComposer(props: {
           </Button>
         )}
       </div>
+      {slashQuery !== null ? (
+        <HermesSlashCommandMenu
+          commands={slashCommands}
+          selectedIndex={slashIndex}
+          onSelect={chooseSlashCommand}
+        />
+      ) : null}
+      {skillQuery !== null ? (
+        <HermesSkillSearchMenu
+          skills={skillResults}
+          selectedIndex={skillIndex}
+          onSelect={chooseSkill}
+        />
+      ) : null}
       {mentionQuery !== null ? (
         <div className="mx-auto mt-2 max-w-3xl rounded-xl border border-border bg-popover p-2 shadow-lg">
           <div className="mb-1 px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
