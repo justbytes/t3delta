@@ -716,7 +716,7 @@ function DetailBlock({
   );
 }
 
-function HermesContextUsageMeter({ usage }: { usage: HermesContextUsage }) {
+export function HermesContextUsageMeter({ usage }: { usage: HermesContextUsage }) {
   const percentage =
     usage.maxTokens && usage.maxTokens > 0
       ? Math.min(100, (usage.usedTokens / usage.maxTokens) * 100)

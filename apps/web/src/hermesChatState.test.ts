@@ -334,4 +334,30 @@ describe("Hermes chat state", () => {
       maxTokens: 8192,
     });
   });
+
+  it("combines completed response usage with Hermes metadata context window", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Hello");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.completed",
+      data: {
+        type: "response.completed",
+        response: {
+          id: "resp_metadata_usage",
+          usage: {
+            input_tokens: 7_500,
+            output_tokens: 1_250,
+          },
+          metadata: {
+            model_context_window: 10_000,
+          },
+        },
+      },
+    });
+
+    expect(state.sessionsById[state.activeSessionId]!.contextUsage).toEqual({
+      usedTokens: 8_750,
+      maxTokens: 10_000,
+    });
+  });
 });

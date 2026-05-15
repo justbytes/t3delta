@@ -755,40 +755,93 @@ function extractErrorMessage(data: unknown): string | undefined {
 }
 
 function extractContextUsage(data: unknown): HermesContextUsage | null {
-  const source =
-    readObject(data, "usage") ??
-    readObject(data, "response.usage") ??
-    readObject(data, "metadata.usage") ??
-    readObject(data, "response.metadata.usage") ??
-    readObject(data, "context_window") ??
-    readObject(data, "contextWindow") ??
-    data;
-  const usedTokens = readNumber(source, [
-    "used_tokens",
-    "usedTokens",
-    "input_tokens",
-    "total_tokens",
-    "totalTokens",
-    "prompt_tokens",
-    "promptTokens",
-    "context_tokens",
-    "contextTokens",
-    "context_window.used_tokens",
-    "contextWindow.usedTokens",
-    "tokens.used",
-  ]);
+  const sources = [
+    readObject(data, "usage"),
+    readObject(data, "response.usage"),
+    readObject(data, "metadata.usage"),
+    readObject(data, "response.metadata.usage"),
+    readObject(data, "context_window"),
+    readObject(data, "response.context_window"),
+    readObject(data, "metadata.context_window"),
+    readObject(data, "response.metadata.context_window"),
+    readObject(data, "contextWindow"),
+    readObject(data, "response.contextWindow"),
+    readObject(data, "metadata.contextWindow"),
+    readObject(data, "response.metadata.contextWindow"),
+    isRecord(data) ? data : undefined,
+    readObject(data, "response"),
+    readObject(data, "metadata"),
+    readObject(data, "response.metadata"),
+  ].filter((source): source is Record<string, unknown> => Boolean(source));
+
+  const usedTokens =
+    readFirstNumber(sources, [
+      "used_tokens",
+      "usedTokens",
+      "total_tokens",
+      "totalTokens",
+      "prompt_tokens",
+      "promptTokens",
+      "context_tokens",
+      "contextTokens",
+      "context_window.used_tokens",
+      "contextWindow.usedTokens",
+      "tokens.used",
+      "token_counts.total",
+      "tokenCounts.total",
+      "token_counts.used",
+      "tokenCounts.used",
+    ]) ?? readSummedTokenUsage(sources);
   const maxTokens =
-    readNumber(source, [
+    readFirstNumber(sources, [
       "max_tokens",
       "maxTokens",
+      "model_context_window",
+      "modelContextWindow",
       "context_window",
       "contextWindow",
       "context_window.max_tokens",
       "contextWindow.maxTokens",
+      "context_window.max",
+      "contextWindow.max",
       "tokens.max",
+      "token_counts.max",
+      "tokenCounts.max",
     ]) ?? null;
   if (usedTokens === undefined) return null;
   return { usedTokens, maxTokens };
+}
+
+function readFirstNumber(
+  sources: readonly Record<string, unknown>[],
+  paths: readonly string[],
+): number | undefined {
+  for (const source of sources) {
+    const value = readNumber(source, paths);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function readSummedTokenUsage(sources: readonly Record<string, unknown>[]): number | undefined {
+  for (const source of sources) {
+    const inputTokens = readNumber(source, [
+      "input_tokens",
+      "inputTokens",
+      "prompt_tokens",
+      "promptTokens",
+    ]);
+    const outputTokens = readNumber(source, [
+      "output_tokens",
+      "outputTokens",
+      "completion_tokens",
+      "completionTokens",
+    ]);
+    if (inputTokens !== undefined || outputTokens !== undefined) {
+      return (inputTokens ?? 0) + (outputTokens ?? 0);
+    }
+  }
+  return undefined;
 }
 
 function extractQuestions(data: unknown): HermesStructuredInputQuestion[] {
