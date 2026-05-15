@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { HermesContextUsageMeter, normalizeWorkspaceFileResults } from "./HermesChatView";
+import {
+  HermesContextUsageMeter,
+  normalizeHermesJobs,
+  normalizeHermesMemory,
+  normalizeHermesModels,
+  normalizeWorkspaceFileResults,
+} from "./HermesChatView";
 
 describe("normalizeWorkspaceFileResults", () => {
   it("reads file mention results from the relay files array", () => {
@@ -35,5 +41,80 @@ describe("HermesContextUsageMeter", () => {
 
     expect(markup).toContain("8,500 / 10,000");
     expect(markup).toContain("bg-amber-400");
+  });
+});
+
+describe("normalizeHermesModels", () => {
+  it("groups provider/model metadata and marks the Hermes default", () => {
+    expect(
+      normalizeHermesModels({
+        default_model: "openai-codex/gpt-5.5",
+        data: [
+          { id: "openai-codex/gpt-5.5", owned_by: "openai-codex" },
+          { id: "anthropic/claude-sonnet-4.5", provider: "anthropic", name: "Claude Sonnet" },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "openai-codex/gpt-5.5",
+        provider: "openai-codex",
+        name: "gpt-5.5",
+        isDefault: true,
+      },
+      {
+        id: "anthropic/claude-sonnet-4.5",
+        provider: "anthropic",
+        name: "Claude Sonnet",
+        isDefault: false,
+      },
+    ]);
+  });
+});
+
+describe("normalizeHermesMemory", () => {
+  it("returns MEMORY.md and USER.md documents with empty placeholders", () => {
+    expect(normalizeHermesMemory({ memory: "# Agent", user: "" })).toEqual([
+      {
+        file: "memory",
+        title: "Agent memory",
+        filename: "MEMORY.md",
+        content: "# Agent",
+      },
+      {
+        file: "user",
+        title: "User profile",
+        filename: "USER.md",
+        content: "",
+      },
+    ]);
+  });
+});
+
+describe("normalizeHermesJobs", () => {
+  it("normalizes job list status, output, errors, and config", () => {
+    expect(
+      normalizeHermesJobs({
+        jobs: [
+          {
+            id: "daily",
+            name: "Daily cleanup",
+            cron: "0 9 * * *",
+            status: "active",
+            last_output: "done",
+            last_error: "",
+            config: { prompt: "clean" },
+          },
+        ],
+      }),
+    ).toMatchObject([
+      {
+        id: "daily",
+        name: "Daily cleanup",
+        schedule: "0 9 * * *",
+        status: "running",
+        output: "done",
+        error: "",
+      },
+    ]);
   });
 });

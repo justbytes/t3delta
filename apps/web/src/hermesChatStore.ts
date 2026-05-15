@@ -13,6 +13,7 @@ import {
   resolveApprovalPrompt,
   selectHermesSession,
   setDraft,
+  setHermesSessionModel,
   stopActiveResponse,
   submitStructuredInput,
   submitUserMessage,
@@ -28,6 +29,7 @@ interface HermesChatStore extends HermesChatState {
   readonly unarchiveSession: (sessionId: string) => void;
   readonly deleteSession: (sessionId: string) => void;
   readonly setDraft: (sessionId: string, draft: string) => void;
+  readonly setSessionModel: (sessionId: string, model: string | undefined) => void;
   readonly submitUserMessage: (text: string) => void;
   readonly setRequestInFlight: (inFlight: boolean) => void;
   readonly restoreDraftAfterError: (text: string, error: string) => void;
@@ -79,6 +81,8 @@ export const useHermesChatStore = create<HermesChatStore>((set) => ({
     set((state) => persistAndReturn(deleteHermesSession(state, sessionId))),
   setDraft: (sessionId, draft) =>
     set((state) => persistAndReturn(setDraft(state, sessionId, draft))),
+  setSessionModel: (sessionId, model) =>
+    set((state) => persistAndReturn(setHermesSessionModel(state, sessionId, model))),
   submitUserMessage: (text) => set((state) => persistAndReturn(submitUserMessage(state, text))),
   setRequestInFlight: (inFlight) => set((state) => markRequestInFlight(state, inFlight)),
   restoreDraftAfterError: (text, error) =>

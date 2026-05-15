@@ -291,6 +291,21 @@ export function setDraft(
   return updateSession(state, { ...session, draft, updatedAt: nowIso() });
 }
 
+export function setHermesSessionModel(
+  state: HermesChatState,
+  sessionId: string,
+  model: string | undefined,
+): HermesChatState {
+  const session = state.sessionsById[sessionId];
+  if (!session) return state;
+  const normalized = model?.trim();
+  return updateSession(state, {
+    ...session,
+    selectedModel: normalized || undefined,
+    updatedAt: nowIso(),
+  });
+}
+
 export function restoreDraftAfterError(
   state: HermesChatState,
   text: string,

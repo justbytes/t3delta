@@ -440,18 +440,18 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
       const fileAccessResponse = await handleHermesFileAccessRequest(request, options.fileAccess);
       if (fileAccessResponse) return fileAccessResponse;
 
-      if (url.pathname.startsWith("/api/hermes/")) {
+      if (url.pathname.startsWith("/api/hermes/") || url.pathname.startsWith("/api/jobs")) {
         const body =
           request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
+        const gatewayPath = url.pathname.startsWith("/api/hermes/")
+          ? url.pathname.slice("/api/hermes".length)
+          : url.pathname;
         try {
-          const upstream = await client.proxy(
-            `${url.pathname.slice("/api/hermes".length)}${url.search}`,
-            {
-              method: request.method,
-              headers: hermesGatewayRequestHeaders(request.headers),
-              ...(body === undefined ? {} : { body }),
-            },
-          );
+          const upstream = await client.proxy(`${gatewayPath}${url.search}`, {
+            method: request.method,
+            headers: hermesGatewayRequestHeaders(request.headers),
+            ...(body === undefined ? {} : { body }),
+          });
           markGatewayReachable();
           const responseBody =
             upstream.body && shouldBridgeSse(upstream, body)
@@ -571,8 +571,11 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
       }
     }
 
-    if (url.pathname.startsWith("/api/hermes/")) {
-      const pathAndSearch = `${url.pathname.slice("/api/hermes".length)}${url.search}`;
+    if (url.pathname.startsWith("/api/hermes/") || url.pathname.startsWith("/api/jobs")) {
+      const gatewayPath = url.pathname.startsWith("/api/hermes/")
+        ? url.pathname.slice("/api/hermes".length)
+        : url.pathname;
+      const pathAndSearch = `${gatewayPath}${url.search}`;
       const body = await readNodeRequestBody(request);
       try {
         const upstream = await client.proxy(pathAndSearch, {

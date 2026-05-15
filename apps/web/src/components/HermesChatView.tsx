@@ -2,7 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircleIcon,
   ArchiveIcon,
+  BoxIcon,
   BotIcon,
+  BrainIcon,
   CheckIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
@@ -10,6 +12,11 @@ import {
   CopyIcon,
   DownloadIcon,
   FileIcon,
+  FolderTreeIcon,
+  GitCompareIcon,
+  GlobeIcon,
+  ImageIcon,
+  ListTodoIcon,
   Loader2Icon,
   PencilIcon,
   PlusIcon,
@@ -106,19 +113,215 @@ async function readJsonError(response: Response): Promise<string> {
   }
 }
 
-function normalizeHermesModels(body: unknown): string[] {
-  const records = (body && typeof body === "object" ? body : {}) as { data?: unknown };
-  const raw = Array.isArray(records.data) ? records.data : Array.isArray(body) ? body : [];
+export interface HermesModelOption {
+  readonly id: string;
+  readonly provider: string;
+  readonly name: string;
+  readonly isDefault: boolean;
+}
+
+export interface HermesMemoryDocument {
+  readonly file: "memory" | "user";
+  readonly title: string;
+  readonly filename: string;
+  readonly content: string;
+}
+
+export type HermesJobStatus = "running" | "paused" | "completed" | "failed" | "scheduled";
+
+export interface HermesJobSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly schedule: string;
+  readonly status: HermesJobStatus;
+  readonly config: string;
+  readonly output: string;
+  readonly error: string;
+  readonly history: readonly string[];
+}
+
+function readRecordString(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function readRecordBool(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  return keys.some((key) => record[key] === true);
+}
+
+function formatJson(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+export function normalizeHermesModels(body: unknown): HermesModelOption[] {
+  const records = (body && typeof body === "object" ? body : {}) as {
+    data?: unknown;
+    models?: unknown;
+    default_model?: unknown;
+    defaultModel?: unknown;
+  };
+  const defaultModel =
+    typeof records.default_model === "string"
+      ? records.default_model
+      : typeof records.defaultModel === "string"
+        ? records.defaultModel
+        : undefined;
+  const raw = Array.isArray(records.data)
+    ? records.data
+    : Array.isArray(records.models)
+      ? records.models
+      : Array.isArray(body)
+        ? body
+        : [];
   return raw
     .map((entry) => {
-      if (typeof entry === "string") return entry;
+      if (typeof entry === "string") {
+        const [provider, ...nameParts] = entry.split("/");
+        return {
+          id: entry,
+          provider: nameParts.length > 0 ? provider! : "Hermes",
+          name: nameParts.length > 0 ? nameParts.join("/") : entry,
+          isDefault: entry === defaultModel,
+        } satisfies HermesModelOption;
+      }
       if (entry && typeof entry === "object") {
-        const candidate = entry as { id?: unknown; name?: unknown; model?: unknown };
-        return candidate.id ?? candidate.name ?? candidate.model;
+        const candidate = entry as Record<string, unknown>;
+        const id = readRecordString(candidate, ["id", "model", "slug", "name"]);
+        if (!id) return undefined;
+        const provider =
+          readRecordString(candidate, ["provider", "owned_by", "provider_name"]) ??
+          (id.includes("/") ? id.split("/")[0]! : "Hermes");
+        const name =
+          readRecordString(candidate, ["display_name", "label", "name"]) ??
+          (id.includes("/") ? id.split("/").slice(1).join("/") : id);
+        return {
+          id,
+          provider,
+          name,
+          isDefault: readRecordBool(candidate, ["default", "is_default"]) || id === defaultModel,
+        } satisfies HermesModelOption;
       }
       return undefined;
     })
-    .filter((model): model is string => typeof model === "string" && model.length > 0);
+    .filter((model): model is HermesModelOption => Boolean(model));
+}
+
+export function normalizeHermesMemory(body: unknown): HermesMemoryDocument[] {
+  const records = (body && typeof body === "object" ? body : {}) as {
+    memory?: unknown;
+    user?: unknown;
+  };
+  return [
+    {
+      file: "memory",
+      title: "Agent memory",
+      filename: "MEMORY.md",
+      content: typeof records.memory === "string" ? records.memory : "",
+    },
+    {
+      file: "user",
+      title: "User profile",
+      filename: "USER.md",
+      content: typeof records.user === "string" ? records.user : "",
+    },
+  ];
+}
+
+function normalizeJobStatus(value: unknown): HermesJobStatus {
+  const status = typeof value === "string" ? value.toLowerCase() : "";
+  if (status === "running" || status === "active") return "running";
+  if (status === "paused" || status === "disabled") return "paused";
+  if (status === "completed" || status === "success" || status === "succeeded") return "completed";
+  if (status === "failed" || status === "error") return "failed";
+  return "scheduled";
+}
+
+export function normalizeHermesJobs(body: unknown): HermesJobSummary[] {
+  const records = (body && typeof body === "object" ? body : {}) as {
+    jobs?: unknown;
+    data?: unknown;
+    results?: unknown;
+  };
+  const raw = Array.isArray(records.jobs)
+    ? records.jobs
+    : Array.isArray(records.data)
+      ? records.data
+      : Array.isArray(records.results)
+        ? records.results
+        : Array.isArray(body)
+          ? body
+          : [];
+  return raw.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const id = readRecordString(record, ["id", "job_id", "name"]) ?? `job-${index}`;
+    const historySource = Array.isArray(record.history)
+      ? record.history
+      : Array.isArray(record.executions)
+        ? record.executions
+        : [];
+    return [
+      {
+        id,
+        name: readRecordString(record, ["name", "title", "description"]) ?? id,
+        schedule:
+          readRecordString(record, ["schedule", "cron", "interval", "next_run"]) ?? "Manual",
+        status: normalizeJobStatus(record.status ?? record.state),
+        config: formatJson(record.config ?? record),
+        output: formatJson(record.output ?? record.last_output ?? record.stdout),
+        error: formatJson(record.error ?? record.last_error ?? record.stderr),
+        history: historySource.map((item) => formatJson(item)).filter(Boolean),
+      } satisfies HermesJobSummary,
+    ];
+  });
+}
+
+const HERMES_OPEN_PANELS_KEY = "t3delta.hermes.openPanels";
+
+type HermesPanelId =
+  | "skills"
+  | "memory"
+  | "models"
+  | "jobs"
+  | "file-tree"
+  | "diff-view"
+  | "image-gen"
+  | "glb-viewer"
+  | "web-browser";
+
+function loadPersistedPanelIds(): HermesPanelId[] {
+  if (typeof window === "undefined") return ["skills"];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(HERMES_OPEN_PANELS_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return ["skills"];
+    const known = new Set<HermesPanelId>([
+      "skills",
+      "memory",
+      "models",
+      "jobs",
+      "file-tree",
+      "diff-view",
+      "image-gen",
+      "glb-viewer",
+      "web-browser",
+    ]);
+    const filtered = parsed.filter((id): id is HermesPanelId => known.has(id));
+    return filtered.length > 0 ? filtered : ["skills"];
+  } catch {
+    return ["skills"];
+  }
 }
 
 export default function HermesChatView() {
@@ -136,6 +339,7 @@ export default function HermesChatView() {
     unarchiveSession,
     deleteSession,
     setDraft,
+    setSessionModel,
     submitUserMessage,
     setRequestInFlight,
     restoreDraftAfterError,
@@ -162,15 +366,36 @@ export default function HermesChatView() {
   const [installedSkills, setInstalledSkills] = useState<readonly HermesSkillSummary[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [skillsError, setSkillsError] = useState<string | null>(null);
-  const [skillsPanelOpen, setSkillsPanelOpen] = useState(true);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelOptions, setModelOptions] = useState<readonly string[]>([]);
+  const [modelOptions, setModelOptions] = useState<readonly HermesModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [memoryDocuments, setMemoryDocuments] = useState<readonly HermesMemoryDocument[]>([]);
+  const [memoryDrafts, setMemoryDrafts] = useState<Record<"memory" | "user", string>>({
+    memory: "",
+    user: "",
+  });
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memorySaving, setMemorySaving] = useState<"memory" | "user" | null>(null);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<readonly HermesJobSummary[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState<readonly string[]>([]);
+  const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
+  const [workspaceFilesError, setWorkspaceFilesError] = useState<string | null>(null);
+  const [openPanelIds, setOpenPanelIds] = useState<readonly HermesPanelId[]>(loadPersistedPanelIds);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const failedTextRef = useRef("");
+  const defaultModel = modelOptions.find((model) => model.isDefault)?.id ?? modelOptions[0]?.id;
+  const selectedModel = activeSession.selectedModel ?? defaultModel ?? null;
+  const togglePanel = useCallback((panelId: HermesPanelId) => {
+    setOpenPanelIds((current) =>
+      current.includes(panelId) ? current.filter((id) => id !== panelId) : [...current, panelId],
+    );
+  }, []);
 
   const refreshSkills = useCallback(async () => {
     setSkillsLoading(true);
@@ -184,6 +409,102 @@ export default function HermesChatView() {
       setSkillsError(sanitizeErrorMessage(error instanceof Error ? error.message : String(error)));
     } finally {
       setSkillsLoading(false);
+    }
+  }, []);
+
+  const refreshMemory = useCallback(async () => {
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      const response = await fetch(resolveApiUrl("/api/memory"));
+      if (!response.ok) throw new Error(await readJsonError(response));
+      const documents = normalizeHermesMemory(await response.json());
+      setMemoryDocuments(documents);
+      setMemoryDrafts({
+        memory: documents.find((document) => document.file === "memory")?.content ?? "",
+        user: documents.find((document) => document.file === "user")?.content ?? "",
+      });
+    } catch (error) {
+      setMemoryError(sanitizeErrorMessage(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setMemoryLoading(false);
+    }
+  }, []);
+
+  const saveMemory = useCallback(
+    async (file: "memory" | "user") => {
+      setMemorySaving(file);
+      setMemoryError(null);
+      try {
+        const response = await fetch(resolveApiUrl(`/api/memory/${file}`), {
+          method: "PUT",
+          headers: { "content-type": "text/markdown; charset=utf-8" },
+          body: memoryDrafts[file],
+        });
+        if (!response.ok) throw new Error(await readJsonError(response));
+        await refreshMemory();
+      } catch (error) {
+        setMemoryError(
+          sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
+        );
+      } finally {
+        setMemorySaving(null);
+      }
+    },
+    [memoryDrafts, refreshMemory],
+  );
+
+  const refreshJobs = useCallback(async () => {
+    setJobsLoading(true);
+    setJobsError(null);
+    try {
+      const response = await fetch(resolveApiUrl("/api/jobs"));
+      if (!response.ok) throw new Error(await readJsonError(response));
+      const nextJobs = normalizeHermesJobs(await response.json());
+      setJobs(nextJobs);
+      setSelectedJobId((current) => current ?? nextJobs[0]?.id ?? null);
+    } catch (error) {
+      setJobs([]);
+      setJobsError(sanitizeErrorMessage(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setJobsLoading(false);
+    }
+  }, []);
+
+  const triggerJob = useCallback(
+    async (job: HermesJobSummary) => {
+      setJobsError(null);
+      setJobs((current) =>
+        current.map((item) => (item.id === job.id ? { ...item, status: "running" } : item)),
+      );
+      try {
+        const response = await fetch(resolveApiUrl(`/api/jobs/${encodeURIComponent(job.id)}/run`), {
+          method: "POST",
+        });
+        if (!response.ok) throw new Error(await readJsonError(response));
+        await refreshJobs();
+      } catch (error) {
+        setJobsError(sanitizeErrorMessage(error instanceof Error ? error.message : String(error)));
+        setJobs((current) => current.map((item) => (item.id === job.id ? job : item)));
+      }
+    },
+    [refreshJobs],
+  );
+
+  const refreshWorkspaceFiles = useCallback(async () => {
+    setWorkspaceFilesLoading(true);
+    setWorkspaceFilesError(null);
+    try {
+      const response = await fetch(resolveApiUrl("/api/workspace/files"));
+      if (!response.ok) throw new Error(await readJsonError(response));
+      setWorkspaceFiles(normalizeWorkspaceFileResults(await response.json()));
+    } catch (error) {
+      setWorkspaceFiles([]);
+      setWorkspaceFilesError(
+        sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
+      );
+    } finally {
+      setWorkspaceFilesLoading(false);
     }
   }, []);
 
@@ -218,7 +539,24 @@ export default function HermesChatView() {
   }, [refreshSkills]);
 
   useEffect(() => {
-    if (!modelPickerOpen || modelOptions.length > 0) return;
+    void refreshMemory();
+    void refreshJobs();
+    void refreshWorkspaceFiles();
+  }, [refreshJobs, refreshMemory, refreshWorkspaceFiles]);
+
+  useEffect(() => {
+    window.localStorage.setItem(HERMES_OPEN_PANELS_KEY, JSON.stringify(openPanelIds));
+  }, [openPanelIds]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshJobs();
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [refreshJobs]);
+
+  useEffect(() => {
+    if (modelOptions.length > 0) return;
     let disposed = false;
     setModelsLoading(true);
     setModelError(null);
@@ -243,7 +581,7 @@ export default function HermesChatView() {
     return () => {
       disposed = true;
     };
-  }, [modelOptions.length, modelPickerOpen]);
+  }, [modelOptions.length]);
 
   useEffect(() => {
     const query = sessionSearch.trim();
@@ -291,7 +629,14 @@ export default function HermesChatView() {
       });
       socket.addEventListener("message", (event) => {
         try {
-          applyWsMessage(JSON.parse(String(event.data)));
+          const message = JSON.parse(String(event.data)) as { type?: unknown; event?: unknown };
+          applyWsMessage(message);
+          if (
+            message.type === "job.status" ||
+            (typeof message.event === "string" && message.event.startsWith("job."))
+          ) {
+            void refreshJobs();
+          }
         } catch {
           // Ignore non-Hermes frames from legacy RPC clients.
         }
@@ -312,7 +657,7 @@ export default function HermesChatView() {
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [applyWsMessage, setWebsocketStatus]);
+  }, [applyWsMessage, refreshJobs, setWebsocketStatus]);
 
   useEffect(() => {
     if (!isAtBottom) return;
@@ -560,7 +905,7 @@ export default function HermesChatView() {
           selectedModel={selectedModel}
           onNewSession={createSession}
           onOpenModelPicker={() => setModelPickerOpen(true)}
-          onToggleSkillsPanel={() => setSkillsPanelOpen((value) => !value)}
+          onToggleSkillsPanel={() => togglePanel("skills")}
         />
         <div className="flex min-h-0 flex-1">
           <aside className="hidden w-64 shrink-0 border-r border-border/60 bg-card/20 p-3 lg:block">
@@ -716,16 +1061,45 @@ export default function HermesChatView() {
               onStop={stopResponse}
             />
           </main>
-          {skillsPanelOpen ? (
-            <HermesSkillsPanel
-              installedSkills={installedSkills}
-              loading={skillsLoading}
-              error={skillsError}
-              onRefresh={refreshSkills}
-              onInstall={installHubSkill}
-              onUninstall={uninstallSkill}
-            />
-          ) : null}
+          <HermesPanelSidebar
+            activeSession={activeSession}
+            openPanelIds={openPanelIds}
+            modelOptions={modelOptions}
+            modelsLoading={modelsLoading}
+            modelError={modelError}
+            selectedModel={selectedModel}
+            memoryDocuments={memoryDocuments}
+            memoryDrafts={memoryDrafts}
+            memoryLoading={memoryLoading}
+            memorySaving={memorySaving}
+            memoryError={memoryError}
+            jobs={jobs}
+            jobsLoading={jobsLoading}
+            jobsError={jobsError}
+            selectedJobId={selectedJobId}
+            workspaceFiles={workspaceFiles}
+            workspaceFilesLoading={workspaceFilesLoading}
+            workspaceFilesError={workspaceFilesError}
+            installedSkills={installedSkills}
+            skillsLoading={skillsLoading}
+            skillsError={skillsError}
+            onTogglePanel={togglePanel}
+            onClosePanel={togglePanel}
+            onOpenModelPicker={() => setModelPickerOpen(true)}
+            onSelectModel={(model) => setSessionModel(activeSession.id, model)}
+            onRefreshMemory={refreshMemory}
+            onMemoryDraftChange={(file, content) =>
+              setMemoryDrafts((current) => ({ ...current, [file]: content }))
+            }
+            onSaveMemory={saveMemory}
+            onRefreshJobs={refreshJobs}
+            onSelectJob={setSelectedJobId}
+            onTriggerJob={triggerJob}
+            onRefreshWorkspaceFiles={refreshWorkspaceFiles}
+            onRefreshSkills={refreshSkills}
+            onInstallSkill={installHubSkill}
+            onUninstallSkill={uninstallSkill}
+          />
         </div>
       </div>
       <HermesModelPickerDialog
@@ -736,7 +1110,7 @@ export default function HermesChatView() {
         selectedModel={selectedModel}
         onClose={() => setModelPickerOpen(false)}
         onSelect={(model) => {
-          setSelectedModel(model);
+          setSessionModel(activeSession.id, model);
           setModelPickerOpen(false);
         }}
       />
@@ -1392,17 +1766,604 @@ function ImageLightbox({
   );
 }
 
+function HermesPanelIcon({ id }: { id: HermesPanelId }) {
+  if (id === "skills") return <WrenchIcon className="size-4" />;
+  if (id === "memory") return <BrainIcon className="size-4" />;
+  if (id === "models") return <SparklesIcon className="size-4" />;
+  if (id === "jobs") return <ListTodoIcon className="size-4" />;
+  if (id === "file-tree") return <FolderTreeIcon className="size-4" />;
+  if (id === "diff-view") return <GitCompareIcon className="size-4" />;
+  if (id === "image-gen") return <ImageIcon className="size-4" />;
+  if (id === "glb-viewer") return <BoxIcon className="size-4" />;
+  return <GlobeIcon className="size-4" />;
+}
+
+const hermesPanelRegistry: readonly {
+  readonly id: HermesPanelId;
+  readonly name: string;
+  readonly description: string;
+  readonly placeholder?: boolean;
+}[] = [
+  { id: "skills", name: "Skills", description: "Installed skills and Skills Hub" },
+  { id: "memory", name: "Memory", description: "MEMORY.md and USER.md editor" },
+  { id: "models", name: "Models", description: "Hermes provider/model picker" },
+  { id: "jobs", name: "Jobs", description: "Scheduled job monitor" },
+  { id: "file-tree", name: "Files", description: "Workspace directory tree" },
+  { id: "diff-view", name: "Diffs", description: "Changed files and color-coded diffs" },
+  {
+    id: "image-gen",
+    name: "Images",
+    description: "Future image generation results",
+    placeholder: true,
+  },
+  { id: "glb-viewer", name: "GLB", description: "Future 3D/GLB viewer", placeholder: true },
+  {
+    id: "web-browser",
+    name: "Browser",
+    description: "Future embedded web browser",
+    placeholder: true,
+  },
+];
+
+function HermesPanelSidebar(props: {
+  activeSession: HermesSession;
+  openPanelIds: readonly HermesPanelId[];
+  modelOptions: readonly HermesModelOption[];
+  modelsLoading: boolean;
+  modelError: string | null;
+  selectedModel: string | null;
+  memoryDocuments: readonly HermesMemoryDocument[];
+  memoryDrafts: Record<"memory" | "user", string>;
+  memoryLoading: boolean;
+  memorySaving: "memory" | "user" | null;
+  memoryError: string | null;
+  jobs: readonly HermesJobSummary[];
+  jobsLoading: boolean;
+  jobsError: string | null;
+  selectedJobId: string | null;
+  workspaceFiles: readonly string[];
+  workspaceFilesLoading: boolean;
+  workspaceFilesError: string | null;
+  installedSkills: readonly HermesSkillSummary[];
+  skillsLoading: boolean;
+  skillsError: string | null;
+  onTogglePanel: (panelId: HermesPanelId) => void;
+  onClosePanel: (panelId: HermesPanelId) => void;
+  onOpenModelPicker: () => void;
+  onSelectModel: (model: string | undefined) => void;
+  onRefreshMemory: () => void;
+  onMemoryDraftChange: (file: "memory" | "user", content: string) => void;
+  onSaveMemory: (file: "memory" | "user") => void;
+  onRefreshJobs: () => void;
+  onSelectJob: (jobId: string) => void;
+  onTriggerJob: (job: HermesJobSummary) => void;
+  onRefreshWorkspaceFiles: () => void;
+  onRefreshSkills: () => void;
+  onInstallSkill: (skill: HermesHubSkill) => void;
+  onUninstallSkill: (skill: HermesSkillSummary) => void;
+}) {
+  return (
+    <aside className="hidden w-[25rem] shrink-0 border-l border-border/60 bg-card/20 xl:flex">
+      <nav className="flex w-14 flex-col items-center gap-1 border-r border-border/55 py-3">
+        {hermesPanelRegistry.map((panel) => {
+          const open = props.openPanelIds.includes(panel.id);
+          return (
+            <button
+              key={panel.id}
+              type="button"
+              className={cn(
+                "group relative rounded-xl p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+                open ? "bg-secondary text-foreground" : "",
+              )}
+              title={`${open ? "Close" : "Open"} ${panel.name}: ${panel.description}`}
+              aria-label={`${open ? "Close" : "Open"} ${panel.name} panel`}
+              onClick={() => props.onTogglePanel(panel.id)}
+            >
+              <HermesPanelIcon id={panel.id} />
+              {panel.placeholder ? (
+                <span className="absolute -right-0.5 -top-0.5 rounded-full bg-primary px-1 text-[8px] text-primary-foreground">
+                  soon
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        {props.openPanelIds.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            Open a panel tab to view memory, models, jobs, files, diffs, or future creative slots.
+          </div>
+        ) : null}
+        {props.openPanelIds.map((panelId) => (
+          <section key={panelId} className="border-b border-border/45">
+            <div className="flex items-center justify-between gap-2 border-b border-border/35 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <HermesPanelIcon id={panelId} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {hermesPanelRegistry.find((panel) => panel.id === panelId)?.name}
+                  </p>
+                  <p className="truncate text-[10px] text-muted-foreground/60">
+                    {hermesPanelRegistry.find((panel) => panel.id === panelId)?.description}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Close ${panelId} panel`}
+                onClick={() => props.onClosePanel(panelId)}
+              >
+                <XIcon className="size-3.5" />
+              </Button>
+            </div>
+            {panelId === "skills" ? (
+              <HermesSkillsPanel
+                embedded
+                installedSkills={props.installedSkills}
+                loading={props.skillsLoading}
+                error={props.skillsError}
+                onRefresh={props.onRefreshSkills}
+                onInstall={async (skill) => props.onInstallSkill(skill)}
+                onUninstall={async (skill) => props.onUninstallSkill(skill)}
+              />
+            ) : null}
+            {panelId === "memory" ? (
+              <HermesMemoryPanel
+                documents={props.memoryDocuments}
+                drafts={props.memoryDrafts}
+                loading={props.memoryLoading}
+                saving={props.memorySaving}
+                error={props.memoryError}
+                onRefresh={props.onRefreshMemory}
+                onDraftChange={props.onMemoryDraftChange}
+                onSave={props.onSaveMemory}
+              />
+            ) : null}
+            {panelId === "models" ? (
+              <HermesModelsPanel
+                models={props.modelOptions}
+                loading={props.modelsLoading}
+                error={props.modelError}
+                selectedModel={props.selectedModel}
+                onOpenDialog={props.onOpenModelPicker}
+                onSelect={props.onSelectModel}
+              />
+            ) : null}
+            {panelId === "jobs" ? (
+              <HermesJobsPanel
+                jobs={props.jobs}
+                loading={props.jobsLoading}
+                error={props.jobsError}
+                selectedJobId={props.selectedJobId}
+                onRefresh={props.onRefreshJobs}
+                onSelect={props.onSelectJob}
+                onTrigger={props.onTriggerJob}
+              />
+            ) : null}
+            {panelId === "file-tree" ? (
+              <HermesFileTreePanel
+                files={props.workspaceFiles}
+                loading={props.workspaceFilesLoading}
+                error={props.workspaceFilesError}
+                onRefresh={props.onRefreshWorkspaceFiles}
+              />
+            ) : null}
+            {panelId === "diff-view" ? <HermesDiffPanel session={props.activeSession} /> : null}
+            {panelId === "image-gen" || panelId === "glb-viewer" || panelId === "web-browser" ? (
+              <HermesPlaceholderPanel
+                panel={hermesPanelRegistry.find((panel) => panel.id === panelId)!}
+              />
+            ) : null}
+          </section>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function HermesMemoryPanel(props: {
+  documents: readonly HermesMemoryDocument[];
+  drafts: Record<"memory" | "user", string>;
+  loading: boolean;
+  saving: "memory" | "user" | null;
+  error: string | null;
+  onRefresh: () => void;
+  onDraftChange: (file: "memory" | "user", content: string) => void;
+  onSave: (file: "memory" | "user") => void;
+}) {
+  const documents =
+    props.documents.length > 0
+      ? props.documents
+      : normalizeHermesMemory({ memory: props.drafts.memory, user: props.drafts.user });
+  return (
+    <div className="space-y-3 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground/70">
+          Edits are written to Hermes memory and persist across sessions.
+        </p>
+        <Button size="xs" variant="outline" onClick={props.onRefresh}>
+          <RefreshCwIcon className="size-3" />
+          Refresh
+        </Button>
+      </div>
+      {props.error ? (
+        <p className="rounded-lg border border-red-500/35 bg-red-500/10 p-2 text-xs text-red-100">
+          {props.error}
+        </p>
+      ) : null}
+      {props.loading ? <p className="text-sm text-muted-foreground">Loading memory…</p> : null}
+      {documents.map((document) => (
+        <div key={document.file} className="rounded-xl border border-border/50 bg-background/35">
+          <div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{document.title}</p>
+              <p className="font-mono text-[10px] text-muted-foreground/60">{document.filename}</p>
+            </div>
+            <Button
+              size="xs"
+              disabled={props.saving === document.file}
+              onClick={() => props.onSave(document.file)}
+            >
+              {props.saving === document.file ? (
+                <Loader2Icon className="size-3 animate-spin" />
+              ) : (
+                <CheckIcon className="size-3" />
+              )}
+              Save
+            </Button>
+          </div>
+          <textarea
+            className="min-h-40 w-full resize-y bg-transparent p-3 font-mono text-xs outline-none placeholder:text-muted-foreground/45"
+            placeholder={`No ${document.filename} content yet.`}
+            value={props.drafts[document.file]}
+            onChange={(event) => props.onDraftChange(document.file, event.target.value)}
+          />
+          {props.drafts[document.file].trim() ? (
+            <div className="border-t border-border/35 p-3">
+              <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
+                Readable preview
+              </p>
+              <ChatMarkdown text={props.drafts[document.file]} cwd={undefined} />
+            </div>
+          ) : (
+            <p className="border-t border-border/35 p-3 text-xs text-muted-foreground">
+              Empty memory section. Add preferences or persistent context for future agent turns.
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HermesModelsPanel(props: {
+  models: readonly HermesModelOption[];
+  loading: boolean;
+  error: string | null;
+  selectedModel: string | null;
+  onOpenDialog: () => void;
+  onSelect: (model: string | undefined) => void;
+}) {
+  const grouped = useMemo(() => {
+    const groups = new Map<string, HermesModelOption[]>();
+    for (const model of props.models) {
+      groups.set(model.provider, [...(groups.get(model.provider) ?? []), model]);
+    }
+    return Array.from(groups.entries());
+  }, [props.models]);
+  return (
+    <div className="space-y-3 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground/70">
+          Current session model:{" "}
+          <span className="font-mono">{props.selectedModel ?? "Hermes default"}</span>
+        </p>
+        <Button size="xs" variant="outline" onClick={props.onOpenDialog}>
+          Dialog
+        </Button>
+      </div>
+      {props.loading ? <p className="text-sm text-muted-foreground">Loading models…</p> : null}
+      {props.error ? (
+        <p className="rounded-lg border border-red-500/35 bg-red-500/10 p-2 text-xs text-red-100">
+          {props.error}
+        </p>
+      ) : null}
+      {grouped.length === 0 && !props.loading ? (
+        <p className="text-sm text-muted-foreground">No Hermes models returned.</p>
+      ) : null}
+      {grouped.map(([provider, models]) => (
+        <div key={provider} className="rounded-xl border border-border/50 bg-background/35 p-2">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+            {provider}
+          </p>
+          <div className="space-y-1">
+            {models.map((model) => (
+              <button
+                key={model.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-xs",
+                  props.selectedModel === model.id
+                    ? "bg-primary/10 text-foreground"
+                    : "hover:bg-secondary",
+                )}
+                onClick={() => props.onSelect(model.id)}
+              >
+                <span>
+                  <span className="font-medium">{model.name}</span>
+                  <span className="ml-2 font-mono text-[10px] text-muted-foreground/60">
+                    {model.id}
+                  </span>
+                  {model.isDefault ? (
+                    <span className="ml-2 rounded-full bg-secondary px-1.5 py-0.5 text-[10px]">
+                      default
+                    </span>
+                  ) : null}
+                </span>
+                {props.selectedModel === model.id ? <CheckIcon className="size-3.5" /> : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HermesJobsPanel(props: {
+  jobs: readonly HermesJobSummary[];
+  loading: boolean;
+  error: string | null;
+  selectedJobId: string | null;
+  onRefresh: () => void;
+  onSelect: (jobId: string) => void;
+  onTrigger: (job: HermesJobSummary) => void;
+}) {
+  const selectedJob = props.jobs.find((job) => job.id === props.selectedJobId) ?? props.jobs[0];
+  return (
+    <div className="space-y-3 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground/70">Status refreshes automatically.</p>
+        <Button size="xs" variant="outline" onClick={props.onRefresh}>
+          <RefreshCwIcon className="size-3" />
+          Refresh
+        </Button>
+      </div>
+      {props.error ? (
+        <p className="rounded-lg border border-red-500/35 bg-red-500/10 p-2 text-xs text-red-100">
+          {props.error}
+        </p>
+      ) : null}
+      {props.loading ? <p className="text-sm text-muted-foreground">Loading jobs…</p> : null}
+      {props.jobs.length === 0 && !props.loading ? (
+        <p className="rounded-lg border border-dashed border-border/45 p-3 text-sm text-muted-foreground">
+          No scheduled Hermes jobs returned.
+        </p>
+      ) : null}
+      <div className="space-y-1">
+        {props.jobs.map((job) => (
+          <button
+            key={job.id}
+            type="button"
+            className={cn(
+              "w-full rounded-lg border p-2 text-left text-xs",
+              selectedJob?.id === job.id ? "border-primary bg-primary/10" : "border-border/50",
+            )}
+            onClick={() => props.onSelect(job.id)}
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span className="font-medium">{job.name}</span>
+              <HermesJobStatusPill status={job.status} />
+            </span>
+            <span className="mt-1 block text-muted-foreground/70">{job.schedule}</span>
+          </button>
+        ))}
+      </div>
+      {selectedJob ? (
+        <div className="rounded-xl border border-border/50 bg-background/35 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium">{selectedJob.name}</p>
+              <p className="font-mono text-[10px] text-muted-foreground/60">{selectedJob.id}</p>
+            </div>
+            <Button size="xs" onClick={() => props.onTrigger(selectedJob)}>
+              <RefreshCwIcon className="size-3" />
+              Run now
+            </Button>
+          </div>
+          <dl className="space-y-2 text-xs">
+            <div>
+              <dt className="text-muted-foreground/60">Full configuration</dt>
+              <dd className="mt-1 whitespace-pre-wrap rounded bg-background/60 p-2 font-mono">
+                {selectedJob.config || "No configuration returned."}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground/60">Last execution output</dt>
+              <dd className="mt-1 whitespace-pre-wrap rounded bg-green-500/5 p-2 font-mono text-green-100">
+                {selectedJob.output || "No output yet."}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground/60">Error logs</dt>
+              <dd className="mt-1 whitespace-pre-wrap rounded bg-red-500/5 p-2 font-mono text-red-100">
+                {selectedJob.error || "No errors reported."}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HermesJobStatusPill({ status }: { status: HermesJobStatus }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[10px] capitalize",
+        status === "running"
+          ? "bg-blue-500/15 text-blue-100"
+          : status === "failed"
+            ? "bg-red-500/15 text-red-100"
+            : status === "completed"
+              ? "bg-green-500/15 text-green-100"
+              : "bg-secondary text-muted-foreground",
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+
+function HermesFileTreePanel(props: {
+  files: readonly string[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  const tree = useMemo(() => buildFileTree(props.files), [props.files]);
+  return (
+    <div className="space-y-2 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground/70">Workspace directory structure</p>
+        <Button size="xs" variant="outline" onClick={props.onRefresh}>
+          Refresh
+        </Button>
+      </div>
+      {props.loading ? <p className="text-sm text-muted-foreground">Loading files…</p> : null}
+      {props.error ? (
+        <p className="rounded-lg border border-red-500/35 bg-red-500/10 p-2 text-xs text-red-100">
+          {props.error}
+        </p>
+      ) : null}
+      <div className="rounded-xl border border-border/50 bg-background/35 p-2 font-mono text-xs">
+        {tree.length > 0 ? (
+          tree.map((node) => <HermesFileTreeNode key={node.path} node={node} level={0} />)
+        ) : (
+          <p className="p-2 text-muted-foreground">No workspace files returned.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface FileTreeNode {
+  readonly name: string;
+  readonly path: string;
+  readonly children: FileTreeNode[];
+}
+
+function buildFileTree(paths: readonly string[]): FileTreeNode[] {
+  const root: FileTreeNode[] = [];
+  for (const path of paths.slice(0, 200)) {
+    let current = root;
+    const parts = path.split("/").filter(Boolean);
+    let accumulated = "";
+    for (const part of parts) {
+      accumulated = accumulated ? `${accumulated}/${part}` : part;
+      let node = current.find((entry) => entry.name === part);
+      if (!node) {
+        node = { name: part, path: accumulated, children: [] };
+        current.push(node);
+      }
+      current = node.children;
+    }
+  }
+  return root.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function HermesFileTreeNode({ node, level }: { node: FileTreeNode; level: number }) {
+  const isDirectory = node.children.length > 0;
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-secondary"
+        style={{ paddingLeft: `${level * 12 + 4}px` }}
+        title={isDirectory ? node.path : `Open ${node.path}`}
+      >
+        {isDirectory ? <ChevronRightIcon className="size-3" /> : <FileIcon className="size-3" />}
+        <span className={isDirectory ? "text-foreground" : "text-muted-foreground"}>
+          {node.name}
+        </span>
+      </button>
+      {node.children.map((child) => (
+        <HermesFileTreeNode key={child.path} node={child} level={level + 1} />
+      ))}
+    </div>
+  );
+}
+
+function HermesDiffPanel({ session }: { session: HermesSession }) {
+  const files = Array.from(new Set(session.toolCalls.flatMap((tool) => tool.filePaths)));
+  return (
+    <div className="space-y-3 p-3">
+      <p className="text-xs text-muted-foreground/70">
+        Changed-file references from agent tool calls with diff-style color coding.
+      </p>
+      {files.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border/45 p-3 text-sm text-muted-foreground">
+          No changed files detected for this session yet.
+        </p>
+      ) : (
+        files.map((file) => (
+          <div
+            key={file}
+            className="overflow-hidden rounded-xl border border-border/50 bg-background/35"
+          >
+            <div className="border-b border-border/40 px-3 py-2 font-mono text-xs">{file}</div>
+            <div className="font-mono text-xs">
+              <div className="bg-green-500/10 px-3 py-1 text-green-100">
+                + Agent reported changes may appear here.
+              </div>
+              <div className="bg-red-500/10 px-3 py-1 text-red-100">
+                - Removed lines are highlighted in red.
+              </div>
+              <div className="px-3 py-1 text-muted-foreground">
+                {"  "}Open tool details for full output and paths.
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function HermesPlaceholderPanel(props: { panel: (typeof hermesPanelRegistry)[number] }) {
+  return (
+    <div className="p-3">
+      <div className="rounded-xl border border-dashed border-border/55 bg-background/30 p-4 text-sm">
+        <p className="font-medium">{props.panel.name} placeholder</p>
+        <p className="mt-1 text-xs text-muted-foreground/75">
+          {props.panel.description}. This slot is registered through the extensible panel registry
+          and can be replaced with a real panel without changing the core layout.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function HermesSkillsPanel(props: {
   installedSkills: readonly HermesSkillSummary[];
   loading: boolean;
   error: string | null;
+  embedded?: boolean;
   onRefresh: () => void;
   onInstall: (skill: HermesHubSkill) => Promise<void>;
   onUninstall: (skill: HermesSkillSummary) => Promise<void>;
 }) {
   const installedNames = new Set(props.installedSkills.map((skill) => skill.name));
   return (
-    <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border/60 bg-card/20 p-3 xl:block">
+    <aside
+      className={cn(
+        "overflow-y-auto p-3",
+        props.embedded ? "" : "hidden w-80 shrink-0 border-l border-border/60 bg-card/20 xl:block",
+      )}
+    >
       <div className="mb-3 flex items-center justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/65">
@@ -1494,7 +2455,7 @@ function HermesSkillsPanel(props: {
 
 function HermesModelPickerDialog(props: {
   open: boolean;
-  models: readonly string[];
+  models: readonly HermesModelOption[];
   loading: boolean;
   error: string | null;
   selectedModel: string | null;
@@ -1523,18 +2484,27 @@ function HermesModelPickerDialog(props: {
             ) : (
               props.models.map((model) => (
                 <button
-                  key={model}
+                  key={model.id}
                   type="button"
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm",
-                    props.selectedModel === model
+                    props.selectedModel === model.id
                       ? "border-primary bg-primary/10"
                       : "border-border hover:bg-secondary",
                   )}
-                  onClick={() => props.onSelect(model)}
+                  onClick={() => props.onSelect(model.id)}
                 >
-                  <span>{model}</span>
-                  {props.selectedModel === model ? <CheckIcon className="size-4" /> : null}
+                  <span>
+                    <span>{model.provider}</span>
+                    <span className="mx-1 text-muted-foreground/55">/</span>
+                    <span>{model.name}</span>
+                    {model.isDefault ? (
+                      <span className="ml-2 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        default
+                      </span>
+                    ) : null}
+                  </span>
+                  {props.selectedModel === model.id ? <CheckIcon className="size-4" /> : null}
                 </button>
               ))
             )}

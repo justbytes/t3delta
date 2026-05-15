@@ -8,6 +8,7 @@ import {
   reduceHermesWsMessage,
   restoreDraftAfterError,
   setDraft,
+  setHermesSessionModel,
   stopActiveResponse,
   submitUserMessage,
   resolveApprovalPrompt,
@@ -239,6 +240,15 @@ describe("Hermes chat state", () => {
     expect(state.activeSessionId).toBe(secondSession.id);
     expect(state.sessionsById[firstSessionId]!.draft).toBe("updated draft A");
     expect(state.sessionsById[secondSession.id]!.draft).toBe("draft B");
+  });
+
+  it("persists selected model on the current Hermes session", () => {
+    let state = createInitialHermesChatState();
+    const sessionId = state.activeSessionId;
+
+    state = setHermesSessionModel(state, sessionId, "openai-codex/gpt-5.5");
+
+    expect(state.sessionsById[sessionId]!.selectedModel).toBe("openai-codex/gpt-5.5");
   });
 
   it("hydrates full conversation history from a relay session transcript", () => {

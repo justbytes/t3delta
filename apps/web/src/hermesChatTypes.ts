@@ -72,6 +72,7 @@ export interface HermesSession {
   readonly approvals: readonly HermesApprovalPrompt[];
   readonly structuredInputs: readonly HermesStructuredInputRequest[];
   readonly contextUsage?: HermesContextUsage | undefined;
+  readonly selectedModel?: string | undefined;
   readonly draft: string;
   readonly isRunning: boolean;
   readonly activeAssistantMessageId?: string | undefined;
