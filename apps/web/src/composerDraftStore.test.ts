@@ -91,7 +91,7 @@ function resetComposerDraftStore() {
 }
 
 function modelSelection(
-  provider: "codex" | "claudeAgent",
+  provider: "hermes" | "hermes",
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
@@ -858,14 +858,14 @@ describe("composerDraftStore modelSelection", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(
       threadRef,
-      modelSelection("codex", "gpt-5.3-codex", {
+      modelSelection("hermes", "gpt-5.3-hermes", {
         reasoningEffort: "xhigh",
         fastMode: true,
       }),
     );
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.3-codex", {
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.3-hermes", {
         reasoningEffort: "xhigh",
         fastMode: true,
       }),
@@ -874,10 +874,10 @@ describe("composerDraftStore modelSelection", () => {
 
   it("keeps default-only model selections on the draft", () => {
     const store = useComposerDraftStore.getState();
-    store.setModelSelection(threadRef, modelSelection("codex", "gpt-5.4"));
+    store.setModelSelection(threadRef, modelSelection("hermes", "gpt-5.4"));
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4"),
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.4"),
     );
   });
 
@@ -886,13 +886,13 @@ describe("composerDraftStore modelSelection", () => {
 
     store.setModelSelection(
       threadRef,
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+      modelSelection("hermes", "hermes-opus-4-6", {
         effort: "max",
         fastMode: true,
       }),
     );
     store.setStickyModelSelection(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+      modelSelection("hermes", "hermes-opus-4-6", {
         effort: "max",
         fastMode: true,
       }),
@@ -900,20 +900,20 @@ describe("composerDraftStore modelSelection", () => {
 
     store.setProviderModelOptions(
       threadRef,
-      "claudeAgent",
+      "hermes",
       {
         thinking: false,
       },
       { persistSticky: true },
     );
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", {
         thinking: false,
       }),
     );
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", {
         thinking: false,
       }),
     );
@@ -924,35 +924,35 @@ describe("composerDraftStore modelSelection", () => {
 
     store.setModelSelection(
       threadRef,
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+      modelSelection("hermes", "hermes-opus-4-6", {
         effort: "max",
       }),
     );
 
-    store.setProviderModelOptions(threadRef, "claudeAgent", {
+    store.setProviderModelOptions(threadRef, "hermes", {
       thinking: true,
     });
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", {
         thinking: true,
       }),
     );
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider).toEqual({});
   });
 
-  it("keeps explicit off/default codex overrides on the selection", () => {
+  it("keeps explicit off/default hermes overrides on the selection", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadRef, modelSelection("codex", "gpt-5.4", { fastMode: true }));
+    store.setModelSelection(threadRef, modelSelection("hermes", "gpt-5.4", { fastMode: true }));
 
-    store.setProviderModelOptions(threadRef, "codex", {
+    store.setProviderModelOptions(threadRef, "hermes", {
       reasoningEffort: "high",
       fastMode: false,
     });
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4", {
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.4", {
         reasoningEffort: "high",
         fastMode: false,
       }),
@@ -962,25 +962,23 @@ describe("composerDraftStore modelSelection", () => {
   it("updates only the draft when sticky persistence is omitted", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setStickyModelSelection(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
-    );
+    store.setStickyModelSelection(modelSelection("hermes", "hermes-opus-4-6", { effort: "max" }));
     store.setModelSelection(
       threadRef,
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+      modelSelection("hermes", "hermes-opus-4-6", { effort: "max" }),
     );
 
-    store.setProviderModelOptions(threadRef, "claudeAgent", {
+    store.setProviderModelOptions(threadRef, "hermes", {
       thinking: false,
     });
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", {
         thinking: false,
       }),
     );
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", { effort: "max" }),
     );
   });
 
@@ -991,17 +989,18 @@ describe("composerDraftStore modelSelection", () => {
     store.setModelOptions(
       threadRef,
       providerModelOptions({
-        codex: { fastMode: true },
-        claudeAgent: { effort: "max" },
+        hermes: { reasoningEffort: "xhigh", effort: "max", fastMode: true },
       }),
     );
 
-    // Now set options for only codex — claudeAgent should be untouched
-    store.setModelOptions(threadRef, providerModelOptions({ codex: { reasoningEffort: "xhigh" } }));
+    // Now set options for hermes and ensure the replacement is scoped.
+    store.setModelOptions(
+      threadRef,
+      providerModelOptions({ hermes: { reasoningEffort: "xhigh" } }),
+    );
 
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
-    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ reasoningEffort: "xhigh" });
-    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
+    expect(draft?.modelSelectionByProvider.hermes?.options).toEqual({ reasoningEffort: "xhigh" });
   });
 
   it("preserves other provider options when switching the active model selection", () => {
@@ -1010,37 +1009,35 @@ describe("composerDraftStore modelSelection", () => {
     store.setModelOptions(
       threadRef,
       providerModelOptions({
-        codex: { fastMode: true },
-        claudeAgent: { effort: "max" },
+        hermes: { effort: "max", fastMode: true },
       }),
     );
 
-    store.setModelSelection(threadRef, modelSelection("claudeAgent", "claude-opus-4-6"));
+    store.setModelSelection(threadRef, modelSelection("hermes", "hermes-opus-4-6"));
 
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
-    expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+    expect(draft?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", { effort: "max", fastMode: true }),
     );
-    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ fastMode: true });
-    expect(draft?.activeProvider).toBe("claudeAgent");
+    expect(draft?.activeProvider).toBe("hermes");
   });
 
   it("creates the first sticky snapshot from provider option changes", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadRef, modelSelection("codex", "gpt-5.4"));
+    store.setModelSelection(threadRef, modelSelection("hermes", "gpt-5.4"));
 
     store.setProviderModelOptions(
       threadRef,
-      "codex",
+      "hermes",
       {
         fastMode: true,
       },
       { persistSticky: true },
     );
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4", {
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.4", {
         fastMode: true,
       }),
     );
@@ -1049,30 +1046,28 @@ describe("composerDraftStore modelSelection", () => {
   it("updates only the draft when sticky persistence is disabled", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setStickyModelSelection(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
-    );
+    store.setStickyModelSelection(modelSelection("hermes", "hermes-opus-4-6", { effort: "max" }));
     store.setModelSelection(
       threadRef,
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+      modelSelection("hermes", "hermes-opus-4-6", { effort: "max" }),
     );
 
     store.setProviderModelOptions(
       threadRef,
-      "claudeAgent",
+      "hermes",
       {
         thinking: false,
       },
       { persistSticky: false },
     );
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", {
         thinking: false,
       }),
     );
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "hermes-opus-4-6", { effort: "max" }),
     );
   });
 });
@@ -1088,10 +1083,10 @@ describe("composerDraftStore setModelSelection", () => {
   it("keeps explicit model overrides instead of coercing to null", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadRef, modelSelection("codex", "gpt-5.3-codex"));
+    store.setModelSelection(threadRef, modelSelection("hermes", "gpt-5.3-hermes"));
 
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.3-codex"),
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.3-hermes"),
     );
   });
 });
@@ -1105,30 +1100,30 @@ describe("composerDraftStore sticky composer settings", () => {
     const store = useComposerDraftStore.getState();
 
     store.setStickyModelSelection(
-      modelSelection("codex", "gpt-5.3-codex", {
+      modelSelection("hermes", "gpt-5.3-hermes", {
         reasoningEffort: "medium",
         fastMode: true,
       }),
     );
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.3-codex", {
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.3-hermes", {
         reasoningEffort: "medium",
         fastMode: true,
       }),
     );
-    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
+    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("hermes");
   });
 
   it("normalizes empty sticky model options by dropping selection options", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setStickyModelSelection(modelSelection("codex", "gpt-5.4"));
+    store.setStickyModelSelection(modelSelection("hermes", "gpt-5.4"));
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4"),
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.4"),
     );
-    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
+    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("hermes");
   });
 
   it("applies sticky activeProvider to new drafts", () => {
@@ -1136,14 +1131,14 @@ describe("composerDraftStore sticky composer settings", () => {
     const threadId = ThreadId.make("thread-sticky-active-provider");
     const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
-    store.setStickyModelSelection(modelSelection("claudeAgent", "claude-opus-4-6"));
+    store.setStickyModelSelection(modelSelection("hermes", "hermes-opus-4-6"));
     store.applyStickyState(threadRef);
 
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toMatchObject({
       modelSelectionByProvider: {
-        claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6"),
+        hermes: modelSelection("hermes", "hermes-opus-4-6"),
       },
-      activeProvider: "claudeAgent",
+      activeProvider: "hermes",
     });
   });
 });
@@ -1160,17 +1155,17 @@ describe("composerDraftStore provider-scoped option updates", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(
       threadRef,
-      modelSelection("codex", "gpt-5.3-codex", {
+      modelSelection("hermes", "gpt-5.3-hermes", {
         reasoningEffort: "medium",
       }),
     );
-    store.setProviderModelOptions(threadRef, "claudeAgent", { effort: "max" });
+    store.setProviderModelOptions(threadRef, "hermes", { effort: "max" });
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
-    expect(draft?.modelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    expect(draft?.modelSelectionByProvider.hermes).toEqual(
+      modelSelection("hermes", "gpt-5.3-hermes", { effort: "max" }),
     );
-    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
-    expect(draft?.activeProvider).toBe("codex");
+    expect(draft?.modelSelectionByProvider.hermes?.options).toEqual({ effort: "max" });
+    expect(draft?.activeProvider).toBe("hermes");
   });
 });
 

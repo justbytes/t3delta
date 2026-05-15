@@ -120,26 +120,26 @@ type InstallProviderSettings = {
   title: string;
   binaryPlaceholder: string;
   binaryDescription: ReactNode;
-  homePathKey?: "codexHomePath";
+  homePathKey?: "hermesHomePath";
   homePlaceholder?: string;
   homeDescription?: ReactNode;
 };
 
 const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
   {
-    provider: "codex",
-    title: "Codex",
-    binaryPlaceholder: "Codex binary path",
-    binaryDescription: "Path to the Codex binary",
-    homePathKey: "codexHomePath",
+    provider: "hermes",
+    title: "Hermes",
+    binaryPlaceholder: "Hermes binary path",
+    binaryDescription: "Path to the Hermes binary",
+    homePathKey: "hermesHomePath",
     homePlaceholder: "CODEX_HOME",
-    homeDescription: "Optional custom Codex home and config directory.",
+    homeDescription: "Optional custom Hermes home and config directory.",
   },
   {
-    provider: "claudeAgent",
-    title: "Claude",
-    binaryPlaceholder: "Claude binary path",
-    binaryDescription: "Path to the Claude binary",
+    provider: "hermes",
+    title: "Hermes",
+    binaryPlaceholder: "Hermes binary path",
+    binaryDescription: "Path to the Hermes binary",
   },
 ] as const;
 
@@ -675,16 +675,12 @@ export function GeneralSettingsPanel() {
     Partial<Record<"keybindings" | "logsDirectory", string | null>>
   >({});
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
-    codex: Boolean(
-      settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
-      settings.providers.codex.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
-      settings.providers.codex.customModels.length > 0,
-    ),
-    claudeAgent: Boolean(
-      settings.providers.claudeAgent.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.claudeAgent.binaryPath ||
-      settings.providers.claudeAgent.customModels.length > 0 ||
-      settings.providers.claudeAgent.launchArgs !== "",
+    hermes: Boolean(
+      settings.providers.hermes.binaryPath !==
+        DEFAULT_UNIFIED_SETTINGS.providers.hermes.binaryPath ||
+      settings.providers.hermes.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.hermes.homePath ||
+      settings.providers.hermes.customModels.length > 0 ||
+      settings.providers.hermes.launchArgs !== "",
     ),
   });
   const [openCodeRuleDetails, setOpenCodeRuleDetails] = useState<Record<string, boolean>>({
@@ -701,8 +697,7 @@ export function GeneralSettingsPanel() {
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
-    codex: "",
-    claudeAgent: "",
+    hermes: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
@@ -729,7 +724,7 @@ export function GeneralSettingsPanel() {
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
-  const codexHomePath = settings.providers.codex.homePath;
+  const hermesHomePath = settings.providers.hermes.homePath;
   const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
   const diagnosticsDescription = (() => {
     const exports: string[] = [];
@@ -2558,13 +2553,13 @@ export function GeneralSettingsPanel() {
                           <Input
                             id={`provider-install-${providerCard.homePathKey}`}
                             className="mt-1.5"
-                            value={codexHomePath}
+                            value={hermesHomePath}
                             onChange={(event) =>
                               updateSettings({
                                 providers: {
                                   ...settings.providers,
-                                  codex: {
-                                    ...settings.providers.codex,
+                                  hermes: {
+                                    ...settings.providers.hermes,
                                     homePath: event.target.value,
                                   },
                                 },
@@ -2582,22 +2577,22 @@ export function GeneralSettingsPanel() {
                       </div>
                     ) : null}
 
-                    {providerCard.provider === "claudeAgent" ? (
+                    {providerCard.provider === "hermes" ? (
                       <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                        <label htmlFor="provider-install-claudeAgent-launch-args" className="block">
+                        <label htmlFor="provider-install-hermes-launch-args" className="block">
                           <span className="text-xs font-medium text-foreground">
                             Launch arguments
                           </span>
                           <Input
-                            id="provider-install-claudeAgent-launch-args"
+                            id="provider-install-hermes-launch-args"
                             className="mt-1.5"
-                            value={settings.providers.claudeAgent.launchArgs}
+                            value={settings.providers.hermes.launchArgs}
                             onChange={(event) =>
                               updateSettings({
                                 providers: {
                                   ...settings.providers,
-                                  claudeAgent: {
-                                    ...settings.providers.claudeAgent,
+                                  hermes: {
+                                    ...settings.providers.hermes,
                                     launchArgs: event.target.value,
                                   },
                                 },
@@ -2607,7 +2602,7 @@ export function GeneralSettingsPanel() {
                             spellCheck={false}
                           />
                           <span className="mt-1 block text-xs text-muted-foreground">
-                            Additional CLI arguments passed to Claude Code on session start.
+                            Additional CLI arguments passed to Hermes Code on session start.
                           </span>
                         </label>
                       </div>
@@ -2723,9 +2718,9 @@ export function GeneralSettingsPanel() {
                             addCustomModel(providerCard.provider);
                           }}
                           placeholder={
-                            providerCard.provider === "codex"
-                              ? "gpt-6.7-codex-ultra-preview"
-                              : "claude-sonnet-5-0"
+                            providerCard.provider === "hermes"
+                              ? "gpt-6.7-hermes-ultra-preview"
+                              : "hermes-sonnet-5-0"
                           }
                           spellCheck={false}
                         />

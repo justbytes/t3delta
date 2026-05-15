@@ -555,7 +555,7 @@ export const ChatComposer = memo(
 
     const unlockedSelectedProvider = resolveSelectableProvider(
       providerStatuses,
-      selectedProviderByThreadId ?? threadProvider ?? "codex",
+      selectedProviderByThreadId ?? threadProvider ?? "hermes",
     );
     const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
 
@@ -601,9 +601,7 @@ export const ChatComposer = memo(
       Record<ProviderKind, ReadonlyArray<ServerProvider["models"][number]>>
     >(
       () => ({
-        codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
-        claudeAgent:
-          providerStatuses.find((provider) => provider.provider === "claudeAgent")?.models ?? [],
+        hermes: providerStatuses.find((provider) => provider.provider === "hermes")?.models ?? [],
       }),
       [providerStatuses],
     );

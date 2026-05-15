@@ -31,19 +31,12 @@ export interface AppModelOption {
 }
 
 const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {
-  codex: {
-    provider: "codex",
-    title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
-    placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
-  },
-  claudeAgent: {
-    provider: "claudeAgent",
-    title: "Claude",
-    description: "Save additional Claude model slugs for the picker and `/model` command.",
-    placeholder: "your-claude-model-slug",
-    example: "claude-sonnet-5-0",
+  hermes: {
+    provider: "hermes",
+    title: "Hermes",
+    description: "Save additional Hermes model slugs for the picker and `/model` command.",
+    placeholder: "your-hermes-model-slug",
+    example: "hermes-sonnet-5-0",
   },
 };
 
@@ -52,7 +45,7 @@ export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFI
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
   builtInModelSlugs: ReadonlySet<string>,
-  provider: ProviderKind = "codex",
+  provider: ProviderKind = "hermes",
 ): string[] {
   const normalizedModels: string[] = [];
   const seen = new Set<string>();
@@ -153,17 +146,11 @@ export function getCustomModelOptionsByProvider(
   selectedModel?: string | null,
 ): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
-    codex: getAppModelOptions(
+    hermes: getAppModelOptions(
       settings,
       providers,
-      "codex",
-      selectedProvider === "codex" ? selectedModel : undefined,
-    ),
-    claudeAgent: getAppModelOptions(
-      settings,
-      providers,
-      "claudeAgent",
-      selectedProvider === "claudeAgent" ? selectedModel : undefined,
+      "hermes",
+      selectedProvider === "hermes" ? selectedModel : undefined,
     ),
   };
 }
@@ -173,8 +160,8 @@ export function resolveAppModelSelectionState(
   providers: ReadonlyArray<ServerProvider>,
 ): ModelSelection {
   const selection = settings.textGenerationModelSelection ?? {
-    provider: "codex" as const,
-    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+    provider: "hermes" as const,
+    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.hermes,
   };
   const provider = resolveSelectableProvider(providers, selection.provider);
 

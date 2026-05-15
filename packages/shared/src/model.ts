@@ -1,9 +1,8 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
-  type ClaudeAgentEffort,
-  type ClaudeModelOptions,
-  type CodexModelOptions,
+  type HermesReasoningEffort,
+  type HermesModelOptions,
   type ModelCapabilities,
   type ModelSelection,
   type ProviderKind,
@@ -85,45 +84,38 @@ export function resolveContextWindow(
   return hasContextWindowOption(caps, raw) ? raw : (defaultValue ?? undefined);
 }
 
-export function normalizeCodexModelOptionsWithCapabilities(
+export function normalizeHermesModelOptionsWithCapabilities(
   caps: ModelCapabilities,
-  modelOptions: CodexModelOptions | null | undefined,
-): CodexModelOptions | undefined {
-  const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
-  const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
-  const nextOptions: CodexModelOptions = {
-    ...(reasoningEffort
-      ? { reasoningEffort: reasoningEffort as CodexModelOptions["reasoningEffort"] }
-      : {}),
-    ...(fastMode !== undefined ? { fastMode } : {}),
-  };
-  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
-}
-
-export function normalizeClaudeModelOptionsWithCapabilities(
-  caps: ModelCapabilities,
-  modelOptions: ClaudeModelOptions | null | undefined,
-): ClaudeModelOptions | undefined {
-  const effort = resolveEffort(caps, modelOptions?.effort);
+  modelOptions: HermesModelOptions | null | undefined,
+): HermesModelOptions | undefined {
+  const effort =
+    modelOptions && "effort" in modelOptions ? resolveEffort(caps, modelOptions.effort) : undefined;
   const thinking = caps.supportsThinkingToggle ? modelOptions?.thinking : undefined;
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
   const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
-  const nextOptions: ClaudeModelOptions = {
+  const reasoningEffort =
+    modelOptions && "reasoningEffort" in modelOptions
+      ? resolveEffort(caps, modelOptions.reasoningEffort)
+      : undefined;
+  const nextOptions: HermesModelOptions = {
     ...(thinking !== undefined ? { thinking } : {}),
-    ...(effort ? { effort: effort as ClaudeModelOptions["effort"] } : {}),
+    ...(effort ? { effort: effort as HermesModelOptions["effort"] } : {}),
+    ...(reasoningEffort
+      ? { reasoningEffort: reasoningEffort as HermesModelOptions["reasoningEffort"] }
+      : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
     ...(contextWindow !== undefined ? { contextWindow } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
 
-export function isClaudeUltrathinkPrompt(text: string | null | undefined): boolean {
+export function isHermesUltrathinkPrompt(text: string | null | undefined): boolean {
   return typeof text === "string" && /\bultrathink\b/i.test(text);
 }
 
 export function normalizeModelSlug(
   model: string | null | undefined,
-  provider: ProviderKind = "codex",
+  provider: ProviderKind = "hermes",
 ): string | null {
   if (typeof model !== "string") {
     return null;
@@ -209,7 +201,7 @@ export function trimOrNull<T extends string>(value: T | null | undefined): T | n
  */
 export function resolveApiModelId(modelSelection: ModelSelection): string {
   switch (modelSelection.provider) {
-    case "claudeAgent": {
+    case "hermes": {
       switch (modelSelection.options?.contextWindow) {
         case "1m":
           return `${modelSelection.model}[1m]`;
@@ -223,9 +215,9 @@ export function resolveApiModelId(modelSelection: ModelSelection): string {
   }
 }
 
-export function applyClaudePromptEffortPrefix(
+export function applyHermesPromptEffortPrefix(
   text: string,
-  effort: ClaudeAgentEffort | null | undefined,
+  effort: HermesReasoningEffort | null | undefined,
 ): string {
   const trimmed = text.trim();
   if (!trimmed) {

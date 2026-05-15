@@ -9,7 +9,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.77",
     "@effect/platform-node": "catalog:",
     "@t3delta/contracts": "workspace:*",
     "@t3delta/shared": "workspace:*",

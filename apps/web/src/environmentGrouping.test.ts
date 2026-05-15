@@ -48,7 +48,7 @@ function makeProject(
 ): Project {
   return {
     cwd: `/tmp/${overrides.name}`,
-    defaultModelSelection: { provider: "codex" as const, model: "gpt-5-codex" },
+    defaultModelSelection: { provider: "hermes" as const, model: "gpt-5-hermes" },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     scripts: [],

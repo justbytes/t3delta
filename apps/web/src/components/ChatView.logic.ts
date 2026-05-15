@@ -32,7 +32,7 @@ export function buildLocalDraftThread(
   return {
     id: threadId,
     environmentId: draftThread.environmentId,
-    codexThreadId: null,
+    hermesThreadId: null,
     projectId: draftThread.projectId,
     title: "New thread",
     modelSelection: fallbackModelSelection,

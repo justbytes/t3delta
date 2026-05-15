@@ -14,10 +14,10 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.make("thread-1"),
     environmentId: LOCAL_ENVIRONMENT_ID,
-    codexThreadId: null,
+    hermesThreadId: null,
     projectId: PROJECT_ID,
     title: "Thread",
-    modelSelection: { provider: "codex", model: "gpt-5" },
+    modelSelection: { provider: "hermes", model: "gpt-5" },
     runtimeMode: "full-access",
     interactionMode: "default",
     session: null,

@@ -14,17 +14,17 @@ describe("searchSlashCommandItems", () => {
         description: "Switch this thread back to normal build mode",
       },
       {
-        id: "provider-slash-command:claudeAgent:ui",
+        id: "provider-slash-command:hermes:ui",
         type: "provider-slash-command",
-        provider: "claudeAgent",
+        provider: "hermes",
         command: { name: "ui" },
         label: "/ui",
         description: "Explore, build, and refine UI.",
       },
       {
-        id: "provider-slash-command:claudeAgent:frontend-design",
+        id: "provider-slash-command:hermes:frontend-design",
         type: "provider-slash-command",
-        provider: "claudeAgent",
+        provider: "hermes",
         command: { name: "frontend-design" },
         label: "/frontend-design",
         description: "Create distinctive, production-grade frontend interfaces",
@@ -34,7 +34,7 @@ describe("searchSlashCommandItems", () => {
     >;
 
     expect(searchSlashCommandItems(items, "ui").map((item) => item.id)).toEqual([
-      "provider-slash-command:claudeAgent:ui",
+      "provider-slash-command:hermes:ui",
       "slash:default",
     ]);
   });
@@ -42,17 +42,17 @@ describe("searchSlashCommandItems", () => {
   it("supports fuzzy provider command matches", () => {
     const items = [
       {
-        id: "provider-slash-command:claudeAgent:gh-fix-ci",
+        id: "provider-slash-command:hermes:gh-fix-ci",
         type: "provider-slash-command",
-        provider: "claudeAgent",
+        provider: "hermes",
         command: { name: "gh-fix-ci" },
         label: "/gh-fix-ci",
         description: "Fix failing GitHub Actions",
       },
       {
-        id: "provider-slash-command:claudeAgent:github",
+        id: "provider-slash-command:hermes:github",
         type: "provider-slash-command",
-        provider: "claudeAgent",
+        provider: "hermes",
         command: { name: "github" },
         label: "/github",
         description: "General GitHub help",
@@ -62,7 +62,7 @@ describe("searchSlashCommandItems", () => {
     >;
 
     expect(searchSlashCommandItems(items, "gfc").map((item) => item.id)).toEqual([
-      "provider-slash-command:claudeAgent:gh-fix-ci",
+      "provider-slash-command:hermes:gh-fix-ci",
     ]);
   });
 });

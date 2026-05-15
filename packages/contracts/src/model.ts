@@ -2,9 +2,7 @@ import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import type { ProviderKind } from "./orchestration.ts";
 
-export const CodexReasoningEffort = Schema.Literals(["xhigh", "high", "medium", "low"]);
-export type CodexReasoningEffort = typeof CodexReasoningEffort.Type;
-export const ClaudeAgentEffort = Schema.Literals([
+export const HermesReasoningEffort = Schema.Literals([
   "low",
   "medium",
   "high",
@@ -12,26 +10,20 @@ export const ClaudeAgentEffort = Schema.Literals([
   "max",
   "ultrathink",
 ]);
-export type ClaudeAgentEffort = typeof ClaudeAgentEffort.Type;
-export type ProviderReasoningEffort = CodexReasoningEffort | ClaudeAgentEffort;
+export type HermesReasoningEffort = typeof HermesReasoningEffort.Type;
+export type ProviderReasoningEffort = HermesReasoningEffort;
 
-export const CodexModelOptions = Schema.Struct({
-  reasoningEffort: Schema.optional(CodexReasoningEffort),
-  fastMode: Schema.optional(Schema.Boolean),
-});
-export type CodexModelOptions = typeof CodexModelOptions.Type;
-
-export const ClaudeModelOptions = Schema.Struct({
+export const HermesModelOptions = Schema.Struct({
   thinking: Schema.optional(Schema.Boolean),
-  effort: Schema.optional(ClaudeAgentEffort),
+  effort: Schema.optional(HermesReasoningEffort),
+  reasoningEffort: Schema.optional(HermesReasoningEffort),
   fastMode: Schema.optional(Schema.Boolean),
   contextWindow: Schema.optional(Schema.String),
 });
-export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
+export type HermesModelOptions = typeof HermesModelOptions.Type;
 
 export const ProviderModelOptions = Schema.Struct({
-  codex: Schema.optional(CodexModelOptions),
-  claudeAgent: Schema.optional(ClaudeModelOptions),
+  hermes: Schema.optional(HermesModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
@@ -59,48 +51,25 @@ export const ModelCapabilities = Schema.Struct({
 export type ModelCapabilities = typeof ModelCapabilities.Type;
 
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
-  codex: "gpt-5.4",
-  claudeAgent: "claude-sonnet-4-6",
+  hermes: "gpt-5.5",
 };
 
-export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.codex;
+export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.hermes;
 
 /** Per-provider text generation model defaults. */
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
-  codex: "gpt-5.4-mini",
-  claudeAgent: "claude-haiku-4-5",
+  hermes: "gpt-5.5-mini",
 };
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string, string>> = {
-  codex: {
-    "gpt-5-codex": "gpt-5.4",
-    "5.4": "gpt-5.4",
-    "5.3": "gpt-5.3-codex",
-    "gpt-5.3": "gpt-5.3-codex",
-    "5.3-spark": "gpt-5.3-codex-spark",
-    "gpt-5.3-spark": "gpt-5.3-codex-spark",
-  },
-  claudeAgent: {
-    opus: "claude-opus-4-7",
-    "opus-4.7": "claude-opus-4-7",
-    "claude-opus-4.7": "claude-opus-4-7",
-    "opus-4.6": "claude-opus-4-6",
-    "claude-opus-4.6": "claude-opus-4-6",
-    "claude-opus-4-6-20251117": "claude-opus-4-6",
-    sonnet: "claude-sonnet-4-6",
-    "sonnet-4.6": "claude-sonnet-4-6",
-    "claude-sonnet-4.6": "claude-sonnet-4-6",
-    "claude-sonnet-4-6-20251117": "claude-sonnet-4-6",
-    haiku: "claude-haiku-4-5",
-    "haiku-4.5": "claude-haiku-4-5",
-    "claude-haiku-4.5": "claude-haiku-4-5",
-    "claude-haiku-4-5-20251001": "claude-haiku-4-5",
+  hermes: {
+    default: "gpt-5.5",
+    "gpt-5": "gpt-5.5",
   },
 };
 
 // ── Provider display names ────────────────────────────────────────────
 
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
-  codex: "Codex",
-  claudeAgent: "Claude",
+  hermes: "Hermes",
 };

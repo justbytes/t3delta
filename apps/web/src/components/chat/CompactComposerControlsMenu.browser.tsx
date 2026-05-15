@@ -21,7 +21,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const threadId = ThreadId.make("thread-compact-menu");
   const threadRef = scopeThreadRef(LOCAL_ENVIRONMENT_ID, threadId);
   const threadKey = scopedThreadKey(threadRef);
-  const provider = props?.modelSelection?.provider ?? "claudeAgent";
+  const provider = props?.modelSelection?.provider ?? "hermes";
   const model = props?.modelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
 
   useComposerDraftStore.setState({
@@ -52,7 +52,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const onPromptChange = vi.fn();
   const providerOptions = props?.modelSelection?.options;
   const models =
-    provider === "claudeAgent"
+    provider === "hermes"
       ? [
           {
             slug: "claude-opus-4-6",
@@ -168,7 +168,7 @@ describe("CompactComposerControlsMenu", () => {
 
   it("shows fast mode controls for Opus", async () => {
     await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },
+      modelSelection: { provider: "hermes", model: "claude-opus-4-6" },
     });
 
     await page.getByLabelText("More composer controls").click();
@@ -183,7 +183,7 @@ describe("CompactComposerControlsMenu", () => {
 
   it("hides fast mode controls for non-Opus Claude models", async () => {
     await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+      modelSelection: { provider: "hermes", model: "claude-sonnet-4-6" },
     });
 
     await page.getByLabelText("More composer controls").click();
@@ -195,7 +195,7 @@ describe("CompactComposerControlsMenu", () => {
 
   it("shows only the provided effort options", async () => {
     await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+      modelSelection: { provider: "hermes", model: "claude-sonnet-4-6" },
     });
 
     await page.getByLabelText("More composer controls").click();
@@ -213,7 +213,7 @@ describe("CompactComposerControlsMenu", () => {
   it("shows a Claude thinking on/off section for Haiku", async () => {
     await using _ = await mountMenu({
       modelSelection: {
-        provider: "claudeAgent",
+        provider: "hermes",
         model: "claude-haiku-4-5",
         options: { thinking: true },
       },
@@ -232,7 +232,7 @@ describe("CompactComposerControlsMenu", () => {
   it("shows prompt-controlled Ultrathink state with selectable effort controls", async () => {
     await using _ = await mountMenu({
       modelSelection: {
-        provider: "claudeAgent",
+        provider: "hermes",
         model: "claude-opus-4-6",
         options: { effort: "high" },
       },
@@ -251,7 +251,7 @@ describe("CompactComposerControlsMenu", () => {
   it("warns when ultrathink appears in prompt body text", async () => {
     await using _ = await mountMenu({
       modelSelection: {
-        provider: "claudeAgent",
+        provider: "hermes",
         model: "claude-opus-4-6",
         options: { effort: "high" },
       },

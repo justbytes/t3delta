@@ -2,14 +2,13 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_MODEL_BY_PROVIDER, type ModelCapabilities } from "@t3delta/contracts";
 
 import {
-  applyClaudePromptEffortPrefix,
+  applyHermesPromptEffortPrefix,
   getDefaultContextWindow,
   getDefaultEffort,
   hasContextWindowOption,
   hasEffortLevel,
-  isClaudeUltrathinkPrompt,
-  normalizeClaudeModelOptionsWithCapabilities,
-  normalizeCodexModelOptionsWithCapabilities,
+  isHermesUltrathinkPrompt,
+  normalizeHermesModelOptionsWithCapabilities,
   normalizeModelSlug,
   resolveApiModelId,
   resolveContextWindow,
@@ -20,7 +19,7 @@ import {
   trimOrNull,
 } from "./model.ts";
 
-const codexCaps: ModelCapabilities = {
+const hermesBasicCaps: ModelCapabilities = {
   reasoningEffortLevels: [
     { value: "xhigh", label: "Extra High" },
     { value: "high", label: "High", isDefault: true },
@@ -31,7 +30,7 @@ const codexCaps: ModelCapabilities = {
   promptInjectedEffortLevels: [],
 };
 
-const claudeCaps: ModelCapabilities = {
+const hermesCaps: ModelCapabilities = {
   reasoningEffortLevels: [
     { value: "medium", label: "Medium" },
     { value: "high", label: "High", isDefault: true },
@@ -48,9 +47,8 @@ const claudeCaps: ModelCapabilities = {
 
 describe("normalizeModelSlug", () => {
   it("maps known aliases to canonical slugs", () => {
-    expect(normalizeModelSlug("gpt-5-codex")).toBe("gpt-5.4");
-    expect(normalizeModelSlug("5.3")).toBe("gpt-5.3-codex");
-    expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("claude-sonnet-4-6");
+    expect(normalizeModelSlug("default")).toBe("gpt-5.5");
+    expect(normalizeModelSlug("gpt-5")).toBe("gpt-5.5");
   });
 
   it("returns null for empty or missing values", () => {
@@ -63,63 +61,63 @@ describe("normalizeModelSlug", () => {
 
 describe("resolveModelSlug", () => {
   it("returns defaults when the model is missing", () => {
-    expect(resolveModelSlug(undefined, "codex")).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
+    expect(resolveModelSlug(undefined, "hermes")).toBe(DEFAULT_MODEL_BY_PROVIDER.hermes);
 
-    expect(resolveModelSlugForProvider("claudeAgent", undefined)).toBe(
-      DEFAULT_MODEL_BY_PROVIDER.claudeAgent,
-    );
+    expect(resolveModelSlugForProvider("hermes", undefined)).toBe(DEFAULT_MODEL_BY_PROVIDER.hermes);
   });
 
   it("preserves normalized unknown models", () => {
-    expect(resolveModelSlug("custom/internal-model", "codex")).toBe("custom/internal-model");
+    expect(resolveModelSlug("custom/internal-model", "hermes")).toBe("custom/internal-model");
   });
 });
 
 describe("resolveSelectableModel", () => {
   it("resolves exact slugs, labels, and aliases", () => {
     const options = [
-      { slug: "gpt-5.3-codex", name: "GPT-5.3 Codex" },
-      { slug: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+      { slug: "gpt-5.5", name: "GPT-5.5" },
+      { slug: "custom-hermes-model", name: "Custom Hermes Model" },
     ];
-    expect(resolveSelectableModel("codex", "gpt-5.3-codex", options)).toBe("gpt-5.3-codex");
-    expect(resolveSelectableModel("codex", "gpt-5.3 codex", options)).toBe("gpt-5.3-codex");
-    expect(resolveSelectableModel("claudeAgent", "sonnet", options)).toBe("claude-sonnet-4-6");
+    expect(resolveSelectableModel("hermes", "gpt-5.5", options)).toBe("gpt-5.5");
+    expect(resolveSelectableModel("hermes", "Custom Hermes Model", options)).toBe(
+      "custom-hermes-model",
+    );
+    expect(resolveSelectableModel("hermes", "default", options)).toBe("gpt-5.5");
   });
 });
 
 describe("capability helpers", () => {
   it("reads default efforts", () => {
-    expect(getDefaultEffort(codexCaps)).toBe("high");
-    expect(getDefaultEffort(claudeCaps)).toBe("high");
+    expect(getDefaultEffort(hermesBasicCaps)).toBe("high");
+    expect(getDefaultEffort(hermesCaps)).toBe("high");
   });
 
   it("checks effort support", () => {
-    expect(hasEffortLevel(codexCaps, "xhigh")).toBe(true);
-    expect(hasEffortLevel(codexCaps, "max")).toBe(false);
+    expect(hasEffortLevel(hermesBasicCaps, "xhigh")).toBe(true);
+    expect(hasEffortLevel(hermesBasicCaps, "max")).toBe(false);
   });
 });
 
 describe("resolveEffort", () => {
   it("returns the explicit value when supported and not prompt-injected", () => {
-    expect(resolveEffort(codexCaps, "xhigh")).toBe("xhigh");
-    expect(resolveEffort(codexCaps, "high")).toBe("high");
-    expect(resolveEffort(claudeCaps, "medium")).toBe("medium");
+    expect(resolveEffort(hermesBasicCaps, "xhigh")).toBe("xhigh");
+    expect(resolveEffort(hermesBasicCaps, "high")).toBe("high");
+    expect(resolveEffort(hermesCaps, "medium")).toBe("medium");
   });
 
   it("falls back to default when value is unsupported", () => {
-    expect(resolveEffort(codexCaps, "bogus")).toBe("high");
-    expect(resolveEffort(claudeCaps, "bogus")).toBe("high");
+    expect(resolveEffort(hermesBasicCaps, "bogus")).toBe("high");
+    expect(resolveEffort(hermesCaps, "bogus")).toBe("high");
   });
 
   it("returns the default when no value is provided", () => {
-    expect(resolveEffort(codexCaps, undefined)).toBe("high");
-    expect(resolveEffort(codexCaps, null)).toBe("high");
-    expect(resolveEffort(codexCaps, "")).toBe("high");
-    expect(resolveEffort(codexCaps, "  ")).toBe("high");
+    expect(resolveEffort(hermesBasicCaps, undefined)).toBe("high");
+    expect(resolveEffort(hermesBasicCaps, null)).toBe("high");
+    expect(resolveEffort(hermesBasicCaps, "")).toBe("high");
+    expect(resolveEffort(hermesBasicCaps, "  ")).toBe("high");
   });
 
   it("excludes prompt-injected efforts and falls back to default", () => {
-    expect(resolveEffort(claudeCaps, "ultrathink")).toBe("high");
+    expect(resolveEffort(hermesCaps, "ultrathink")).toBe("high");
   });
 
   it("returns undefined for models with no effort levels", () => {
@@ -137,15 +135,15 @@ describe("resolveEffort", () => {
 
 describe("misc helpers", () => {
   it("detects ultrathink prompts", () => {
-    expect(isClaudeUltrathinkPrompt("Ultrathink:\nInvestigate")).toBe(true);
-    expect(isClaudeUltrathinkPrompt("Investigate")).toBe(false);
+    expect(isHermesUltrathinkPrompt("Ultrathink:\nInvestigate")).toBe(true);
+    expect(isHermesUltrathinkPrompt("Investigate")).toBe(false);
   });
 
   it("prefixes ultrathink prompts once", () => {
-    expect(applyClaudePromptEffortPrefix("Investigate", "ultrathink")).toBe(
+    expect(applyHermesPromptEffortPrefix("Investigate", "ultrathink")).toBe(
       "Ultrathink:\nInvestigate",
     );
-    expect(applyClaudePromptEffortPrefix("Ultrathink:\nInvestigate", "ultrathink")).toBe(
+    expect(applyHermesPromptEffortPrefix("Ultrathink:\nInvestigate", "ultrathink")).toBe(
       "Ultrathink:\nInvestigate",
     );
   });
@@ -158,40 +156,40 @@ describe("misc helpers", () => {
 
 describe("context window helpers", () => {
   it("reads default context window", () => {
-    expect(getDefaultContextWindow(claudeCaps)).toBe("1m");
+    expect(getDefaultContextWindow(hermesCaps)).toBe("1m");
   });
 
   it("returns null for models without context window options", () => {
-    expect(getDefaultContextWindow(codexCaps)).toBeNull();
+    expect(getDefaultContextWindow(hermesBasicCaps)).toBeNull();
   });
 
   it("checks context window support", () => {
-    expect(hasContextWindowOption(claudeCaps, "1m")).toBe(true);
-    expect(hasContextWindowOption(claudeCaps, "200k")).toBe(true);
-    expect(hasContextWindowOption(claudeCaps, "bogus")).toBe(false);
-    expect(hasContextWindowOption(codexCaps, "1m")).toBe(false);
+    expect(hasContextWindowOption(hermesCaps, "1m")).toBe(true);
+    expect(hasContextWindowOption(hermesCaps, "200k")).toBe(true);
+    expect(hasContextWindowOption(hermesCaps, "bogus")).toBe(false);
+    expect(hasContextWindowOption(hermesBasicCaps, "1m")).toBe(false);
   });
 });
 
 describe("resolveContextWindow", () => {
   it("returns the explicit value when supported", () => {
-    expect(resolveContextWindow(claudeCaps, "200k")).toBe("200k");
-    expect(resolveContextWindow(claudeCaps, "1m")).toBe("1m");
+    expect(resolveContextWindow(hermesCaps, "200k")).toBe("200k");
+    expect(resolveContextWindow(hermesCaps, "1m")).toBe("1m");
   });
 
   it("falls back to default when value is unsupported", () => {
-    expect(resolveContextWindow(claudeCaps, "bogus")).toBe("1m");
+    expect(resolveContextWindow(hermesCaps, "bogus")).toBe("1m");
   });
 
   it("returns the default when no value is provided", () => {
-    expect(resolveContextWindow(claudeCaps, undefined)).toBe("1m");
-    expect(resolveContextWindow(claudeCaps, null)).toBe("1m");
-    expect(resolveContextWindow(claudeCaps, "")).toBe("1m");
+    expect(resolveContextWindow(hermesCaps, undefined)).toBe("1m");
+    expect(resolveContextWindow(hermesCaps, null)).toBe("1m");
+    expect(resolveContextWindow(hermesCaps, "")).toBe("1m");
   });
 
   it("returns undefined for models with no context window options", () => {
-    expect(resolveContextWindow(codexCaps, undefined)).toBeUndefined();
-    expect(resolveContextWindow(codexCaps, "1m")).toBeUndefined();
+    expect(resolveContextWindow(hermesBasicCaps, undefined)).toBeUndefined();
+    expect(resolveContextWindow(hermesBasicCaps, "1m")).toBeUndefined();
   });
 });
 
@@ -199,41 +197,41 @@ describe("resolveApiModelId", () => {
   it("appends [1m] suffix for 1m context window", () => {
     expect(
       resolveApiModelId({
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
+        provider: "hermes",
+        model: "hermes-opus-4-6",
         options: { contextWindow: "1m" },
       }),
-    ).toBe("claude-opus-4-6[1m]");
+    ).toBe("hermes-opus-4-6[1m]");
   });
 
   it("returns the model as-is for 200k context window", () => {
     expect(
       resolveApiModelId({
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
+        provider: "hermes",
+        model: "hermes-opus-4-6",
         options: { contextWindow: "200k" },
       }),
-    ).toBe("claude-opus-4-6");
+    ).toBe("hermes-opus-4-6");
   });
 
   it("returns the model as-is when no context window is set", () => {
-    expect(resolveApiModelId({ provider: "claudeAgent", model: "claude-opus-4-6" })).toBe(
-      "claude-opus-4-6",
+    expect(resolveApiModelId({ provider: "hermes", model: "hermes-opus-4-6" })).toBe(
+      "hermes-opus-4-6",
     );
-    expect(
-      resolveApiModelId({ provider: "claudeAgent", model: "claude-opus-4-6", options: {} }),
-    ).toBe("claude-opus-4-6");
+    expect(resolveApiModelId({ provider: "hermes", model: "hermes-opus-4-6", options: {} })).toBe(
+      "hermes-opus-4-6",
+    );
   });
 
-  it("returns the model as-is for Codex selections", () => {
-    expect(resolveApiModelId({ provider: "codex", model: "gpt-5.4" })).toBe("gpt-5.4");
+  it("returns the model as-is for Hermes selections", () => {
+    expect(resolveApiModelId({ provider: "hermes", model: "gpt-5.4" })).toBe("gpt-5.4");
   });
 });
 
 describe("normalize*ModelOptionsWithCapabilities", () => {
-  it("preserves explicit false codex fast mode", () => {
+  it("preserves explicit false hermes fast mode", () => {
     expect(
-      normalizeCodexModelOptionsWithCapabilities(codexCaps, {
+      normalizeHermesModelOptionsWithCapabilities(hermesBasicCaps, {
         reasoningEffort: "high",
         fastMode: false,
       }),
@@ -243,11 +241,11 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     });
   });
 
-  it("preserves the default Claude context window explicitly", () => {
+  it("preserves the default Hermes context window explicitly", () => {
     expect(
-      normalizeClaudeModelOptionsWithCapabilities(
+      normalizeHermesModelOptionsWithCapabilities(
         {
-          ...claudeCaps,
+          ...hermesCaps,
           contextWindowOptions: [
             { value: "200k", label: "200k", isDefault: true },
             { value: "1m", label: "1M" },
@@ -264,11 +262,11 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     });
   });
 
-  it("omits unsupported Claude context window options", () => {
+  it("omits unsupported Hermes context window options", () => {
     expect(
-      normalizeClaudeModelOptionsWithCapabilities(
+      normalizeHermesModelOptionsWithCapabilities(
         {
-          ...claudeCaps,
+          ...hermesCaps,
           reasoningEffortLevels: [],
           supportsThinkingToggle: true,
           contextWindowOptions: [],

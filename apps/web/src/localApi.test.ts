@@ -208,7 +208,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
 
 const defaultProviders: ReadonlyArray<ServerProvider> = [
   {
-    provider: "codex",
+    provider: "hermes",
     enabled: true,
     installed: true,
     version: "0.116.0",
@@ -329,8 +329,8 @@ describe("wsApi", () => {
         title: "Project",
         workspaceRoot: "/tmp/workspace",
         defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
+          provider: "hermes",
+          model: "gpt-5-hermes",
         },
         scripts: [],
         createdAt: "2026-02-24T00:00:00.000Z",
@@ -395,8 +395,8 @@ describe("wsApi", () => {
       title: "Project",
       workspaceRoot: "/tmp/project",
       defaultModelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
+        provider: "hermes",
+        model: "gpt-5-hermes",
       },
       createdAt: "2026-02-24T00:00:00.000Z",
     } as const;

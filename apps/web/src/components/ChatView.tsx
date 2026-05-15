@@ -1,7 +1,7 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
-  type ClaudeAgentEffort,
+  type HermesReasoningEffort,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -25,7 +25,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3delta/client-runtime";
-import { applyClaudePromptEffortPrefix } from "@t3delta/shared/model";
+import { applyHermesPromptEffortPrefix } from "@t3delta/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3delta/shared/projectScripts";
 import { truncate } from "@t3delta/shared/String";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -309,7 +309,10 @@ function formatOutgoingPrompt(params: {
 }): string {
   const caps = getProviderModelCapabilities(params.models, params.model, params.provider);
   if (params.effort && caps.promptInjectedEffortLevels.includes(params.effort)) {
-    return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeAgentEffort | null);
+    return applyHermesPromptEffortPrefix(
+      params.text,
+      params.effort as HermesReasoningEffort | null,
+    );
   }
   return params.text;
 }
@@ -778,8 +781,8 @@ export default function ChatView(props: ChatViewProps) {
             threadId,
             draftThread,
             fallbackDraftProject?.defaultModelSelection ?? {
-              provider: "codex",
-              model: DEFAULT_MODEL_BY_PROVIDER.codex,
+              provider: "hermes",
+              model: DEFAULT_MODEL_BY_PROVIDER.hermes,
             },
             localDraftError,
           )
@@ -1136,7 +1139,7 @@ export default function ChatView(props: ChatViewProps) {
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
   const unlockedSelectedProvider = resolveSelectableProvider(
     providerStatuses,
-    selectedProviderByThreadId ?? threadProvider ?? "codex",
+    selectedProviderByThreadId ?? threadProvider ?? "hermes",
   );
   const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
@@ -2798,7 +2801,7 @@ export default function ChatView(props: ChatViewProps) {
         model:
           ctxSelectedModel ||
           activeProject.defaultModelSelection?.model ||
-          DEFAULT_MODEL_BY_PROVIDER.codex,
+          DEFAULT_MODEL_BY_PROVIDER.hermes,
         ...(ctxSelectedModelSelection.options
           ? { options: ctxSelectedModelSelection.options }
           : {}),

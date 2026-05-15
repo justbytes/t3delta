@@ -780,8 +780,8 @@ function OpenCommandPaletteDialog() {
           workspaceRoot: cwd,
           createWorkspaceRootIfMissing: true,
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            provider: "hermes",
+            model: DEFAULT_MODEL_BY_PROVIDER.hermes,
           },
           createdAt: new Date().toISOString(),
         });

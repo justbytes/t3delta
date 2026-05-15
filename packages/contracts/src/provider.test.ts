@@ -7,14 +7,14 @@ const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSession
 const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
 
 describe("ProviderSessionStartInput", () => {
-  it("accepts codex-compatible payloads", () => {
+  it("accepts hermes-compatible payloads", () => {
     const parsed = decodeProviderSessionStartInput({
       threadId: "thread-1",
-      provider: "codex",
+      provider: "hermes",
       cwd: "/tmp/workspace",
       modelSelection: {
-        provider: "codex",
-        model: "gpt-5.3-codex",
+        provider: "hermes",
+        model: "gpt-5.3-hermes",
         options: {
           reasoningEffort: "high",
           fastMode: true,
@@ -23,10 +23,10 @@ describe("ProviderSessionStartInput", () => {
       runtimeMode: "full-access",
     });
     expect(parsed.runtimeMode).toBe("full-access");
-    expect(parsed.modelSelection?.provider).toBe("codex");
-    expect(parsed.modelSelection?.model).toBe("gpt-5.3-codex");
-    if (parsed.modelSelection?.provider !== "codex") {
-      throw new Error("Expected codex modelSelection");
+    expect(parsed.modelSelection?.provider).toBe("hermes");
+    expect(parsed.modelSelection?.model).toBe("gpt-5.3-hermes");
+    if (parsed.modelSelection?.provider !== "hermes") {
+      throw new Error("Expected hermes modelSelection");
     }
     expect(parsed.modelSelection.options?.reasoningEffort).toBe("high");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
@@ -36,19 +36,19 @@ describe("ProviderSessionStartInput", () => {
     expect(() =>
       decodeProviderSessionStartInput({
         threadId: "thread-1",
-        provider: "codex",
+        provider: "hermes",
       }),
     ).toThrow();
   });
 
-  it("accepts claude runtime knobs", () => {
+  it("accepts hermes runtime knobs", () => {
     const parsed = decodeProviderSessionStartInput({
       threadId: "thread-1",
-      provider: "claudeAgent",
+      provider: "hermes",
       cwd: "/tmp/workspace",
       modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-sonnet-4-6",
+        provider: "hermes",
+        model: "hermes-sonnet-4-6",
         options: {
           thinking: true,
           effort: "max",
@@ -57,11 +57,11 @@ describe("ProviderSessionStartInput", () => {
       },
       runtimeMode: "full-access",
     });
-    expect(parsed.provider).toBe("claudeAgent");
-    expect(parsed.modelSelection?.provider).toBe("claudeAgent");
-    expect(parsed.modelSelection?.model).toBe("claude-sonnet-4-6");
-    if (parsed.modelSelection?.provider !== "claudeAgent") {
-      throw new Error("Expected claude modelSelection");
+    expect(parsed.provider).toBe("hermes");
+    expect(parsed.modelSelection?.provider).toBe("hermes");
+    expect(parsed.modelSelection?.model).toBe("hermes-sonnet-4-6");
+    if (parsed.modelSelection?.provider !== "hermes") {
+      throw new Error("Expected hermes modelSelection");
     }
     expect(parsed.modelSelection.options?.thinking).toBe(true);
     expect(parsed.modelSelection.options?.effort).toBe("max");
@@ -71,12 +71,12 @@ describe("ProviderSessionStartInput", () => {
 });
 
 describe("ProviderSendTurnInput", () => {
-  it("accepts codex modelSelection", () => {
+  it("accepts hermes modelSelection", () => {
     const parsed = decodeProviderSendTurnInput({
       threadId: "thread-1",
       modelSelection: {
-        provider: "codex",
-        model: "gpt-5.3-codex",
+        provider: "hermes",
+        model: "gpt-5.3-hermes",
         options: {
           reasoningEffort: "xhigh",
           fastMode: true,
@@ -84,21 +84,21 @@ describe("ProviderSendTurnInput", () => {
       },
     });
 
-    expect(parsed.modelSelection?.provider).toBe("codex");
-    expect(parsed.modelSelection?.model).toBe("gpt-5.3-codex");
-    if (parsed.modelSelection?.provider !== "codex") {
-      throw new Error("Expected codex modelSelection");
+    expect(parsed.modelSelection?.provider).toBe("hermes");
+    expect(parsed.modelSelection?.model).toBe("gpt-5.3-hermes");
+    if (parsed.modelSelection?.provider !== "hermes") {
+      throw new Error("Expected hermes modelSelection");
     }
     expect(parsed.modelSelection.options?.reasoningEffort).toBe("xhigh");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
   });
 
-  it("accepts claude modelSelection including ultrathink", () => {
+  it("accepts hermes modelSelection including ultrathink", () => {
     const parsed = decodeProviderSendTurnInput({
       threadId: "thread-1",
       modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-sonnet-4-6",
+        provider: "hermes",
+        model: "hermes-sonnet-4-6",
         options: {
           effort: "ultrathink",
           fastMode: true,
@@ -106,9 +106,9 @@ describe("ProviderSendTurnInput", () => {
       },
     });
 
-    expect(parsed.modelSelection?.provider).toBe("claudeAgent");
-    if (parsed.modelSelection?.provider !== "claudeAgent") {
-      throw new Error("Expected claude modelSelection");
+    expect(parsed.modelSelection?.provider).toBe("hermes");
+    if (parsed.modelSelection?.provider !== "hermes") {
+      throw new Error("Expected hermes modelSelection");
     }
     expect(parsed.modelSelection.options?.effort).toBe("ultrathink");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);

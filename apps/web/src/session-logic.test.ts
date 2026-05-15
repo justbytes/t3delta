@@ -331,7 +331,7 @@ describe("deriveActivePlanState", () => {
         turnId: "turn-1",
         payload: {
           explanation: "Refined plan",
-          plan: [{ step: "Implement Codex user input", status: "inProgress" }],
+          plan: [{ step: "Implement Hermes user input", status: "inProgress" }],
         },
       }),
     ];
@@ -340,7 +340,7 @@ describe("deriveActivePlanState", () => {
       createdAt: "2026-02-23T00:00:02.000Z",
       turnId: "turn-1",
       explanation: "Refined plan",
-      steps: [{ step: "Implement Codex user input", status: "inProgress" }],
+      steps: [{ step: "Implement Hermes user input", status: "inProgress" }],
     });
   });
 
@@ -861,7 +861,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.rawCommand).toBeUndefined();
   });
 
-  it("keeps compact Codex tool metadata used for icons and labels", () => {
+  it("keeps compact Hermes tool metadata used for icons and labels", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "tool-with-metadata",
@@ -1326,17 +1326,17 @@ describe("deriveActiveWorkStartedAt", () => {
 });
 
 describe("PROVIDER_OPTIONS", () => {
-  it("advertises Claude as available while keeping Cursor as a placeholder", () => {
-    const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeAgent");
+  it("advertises Hermes as available while keeping Cursor as a placeholder", () => {
+    const hermes = PROVIDER_OPTIONS.find((option) => option.value === "hermes");
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
     expect(PROVIDER_OPTIONS).toEqual([
-      { value: "codex", label: "Codex", available: true },
-      { value: "claudeAgent", label: "Claude", available: true },
+      { value: "hermes", label: "Hermes", available: true },
+      { value: "hermes", label: "Hermes", available: true },
       { value: "cursor", label: "Cursor", available: false },
     ]);
-    expect(claude).toEqual({
-      value: "claudeAgent",
-      label: "Claude",
+    expect(hermes).toEqual({
+      value: "hermes",
+      label: "Hermes",
       available: true,
     });
     expect(cursor).toEqual({

@@ -129,7 +129,7 @@ function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function normalizeModelSelection<T extends { provider: "codex" | "claudeAgent"; model: string }>(
+function normalizeModelSelection<T extends { provider: "hermes" | "hermes"; model: string }>(
   selection: T,
 ): T {
   return {
@@ -228,7 +228,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
   return {
     id: thread.id,
     environmentId,
-    codexThreadId: null,
+    hermesThreadId: null,
     projectId: thread.projectId,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
@@ -262,7 +262,7 @@ function mapThreadShell(
   const shell: ThreadShell = {
     id: thread.id,
     environmentId,
-    codexThreadId: null,
+    hermesThreadId: null,
     projectId: thread.projectId,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
@@ -310,7 +310,7 @@ function toThreadShell(thread: Thread): ThreadShell {
   return {
     id: thread.id,
     environmentId: thread.environmentId,
-    codexThreadId: thread.codexThreadId,
+    hermesThreadId: thread.hermesThreadId,
     projectId: thread.projectId,
     title: thread.title,
     modelSelection: thread.modelSelection,
@@ -406,7 +406,7 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left !== undefined &&
     left.id === right.id &&
     left.environmentId === right.environmentId &&
-    left.codexThreadId === right.codexThreadId &&
+    left.hermesThreadId === right.hermesThreadId &&
     left.projectId === right.projectId &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
@@ -1001,10 +1001,10 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeAgent") {
+  if (providerName === "hermes" || providerName === "hermes") {
     return providerName;
   }
-  return "codex";
+  return "hermes";
 }
 
 function attachmentPreviewRoutePath(attachmentId: string): string {

@@ -19,10 +19,10 @@ describe("ChangedFilesTree", () => {
       name: "a branch point after a compacted prefix",
       files: [
         { path: "apps/server/src/git/Layers/GitCore.ts", additions: 4, deletions: 3 },
-        { path: "apps/server/src/provider/Layers/CodexAdapter.ts", additions: 7, deletions: 2 },
+        { path: "apps/server/src/provider/Layers/HermesAdapter.ts", additions: 7, deletions: 2 },
       ],
       visibleLabels: ["apps/server/src"],
-      hiddenLabels: ["git", "provider", "GitCore.ts", "CodexAdapter.ts"],
+      hiddenLabels: ["git", "provider", "GitCore.ts", "HermesAdapter.ts"],
     },
     {
       name: "mixed root files and nested compacted directories",
@@ -69,14 +69,14 @@ describe("ChangedFilesTree", () => {
       name: "a branch point after a compacted prefix",
       files: [
         { path: "apps/server/src/git/Layers/GitCore.ts", additions: 4, deletions: 3 },
-        { path: "apps/server/src/provider/Layers/CodexAdapter.ts", additions: 7, deletions: 2 },
+        { path: "apps/server/src/provider/Layers/HermesAdapter.ts", additions: 7, deletions: 2 },
       ],
       visibleLabels: [
         "apps/server/src",
         "git/Layers",
         "provider/Layers",
         "GitCore.ts",
-        "CodexAdapter.ts",
+        "HermesAdapter.ts",
       ],
     },
     {

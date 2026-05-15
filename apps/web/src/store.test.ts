@@ -61,12 +61,12 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.make("thread-1"),
     environmentId: localEnvironmentId,
-    codexThreadId: null,
+    hermesThreadId: null,
     projectId: ProjectId.make("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
-      model: "gpt-5-codex",
+      provider: "hermes",
+      model: "gpt-5-hermes",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: DEFAULT_INTERACTION_MODE,
@@ -93,8 +93,8 @@ function makeState(thread: Thread): AppState {
     name: "Project",
     cwd: "/tmp/project",
     defaultModelSelection: {
-      provider: "codex" as const,
-      model: "gpt-5-codex",
+      provider: "hermes" as const,
+      model: "gpt-5-hermes",
     },
     createdAt: "2026-02-13T00:00:00.000Z",
     updatedAt: "2026-02-13T00:00:00.000Z",
@@ -114,7 +114,7 @@ function makeState(thread: Thread): AppState {
       [thread.id]: {
         id: thread.id,
         environmentId: thread.environmentId,
-        codexThreadId: thread.codexThreadId,
+        hermesThreadId: thread.hermesThreadId,
         projectId: thread.projectId,
         title: thread.title,
         modelSelection: thread.modelSelection,
@@ -463,8 +463,8 @@ describe("incremental orchestration updates", () => {
           name: "Project",
           cwd: "/tmp/project",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            provider: "hermes",
+            model: DEFAULT_MODEL_BY_PROVIDER.hermes,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -480,8 +480,8 @@ describe("incremental orchestration updates", () => {
         title: "Project Recreated",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
-          provider: "codex",
-          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          provider: "hermes",
+          model: DEFAULT_MODEL_BY_PROVIDER.hermes,
         },
         scripts: [],
         createdAt: "2026-02-27T00:00:01.000Z",
@@ -518,8 +518,8 @@ describe("incremental orchestration updates", () => {
           name: "Project 1",
           cwd: "/tmp/project-1",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            provider: "hermes",
+            model: DEFAULT_MODEL_BY_PROVIDER.hermes,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -531,8 +531,8 @@ describe("incremental orchestration updates", () => {
           name: "Project 2",
           cwd: "/tmp/project-2",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            provider: "hermes",
+            model: DEFAULT_MODEL_BY_PROVIDER.hermes,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -548,8 +548,8 @@ describe("incremental orchestration updates", () => {
         projectId: recreatedProjectId,
         title: "Recovered thread",
         modelSelection: {
-          provider: "codex",
-          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          provider: "hermes",
+          model: DEFAULT_MODEL_BY_PROVIDER.hermes,
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
         interactionMode: DEFAULT_INTERACTION_MODE,
@@ -594,7 +594,7 @@ describe("incremental orchestration updates", () => {
         [thread2.id]: {
           id: thread2.id,
           environmentId: thread2.environmentId,
-          codexThreadId: thread2.codexThreadId,
+          hermesThreadId: thread2.hermesThreadId,
           projectId: thread2.projectId,
           title: thread2.title,
           modelSelection: thread2.modelSelection,
@@ -714,7 +714,7 @@ describe("incremental orchestration updates", () => {
             session: {
               threadId: thread.id,
               status: "running",
-              providerName: "codex",
+              providerName: "hermes",
               runtimeMode: "full-access",
               activeTurnId: TurnId.make("turn-1"),
               lastError: null,
@@ -998,7 +998,7 @@ describe("incremental orchestration updates", () => {
         session: {
           threadId: thread.id,
           status: "running",
-          providerName: "codex",
+          providerName: "hermes",
           runtimeMode: "full-access",
           activeTurnId: TurnId.make("turn-3"),
           lastError: null,
