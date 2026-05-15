@@ -40,6 +40,7 @@ export function createInitialHermesChatState(): HermesChatState {
   const session = createEmptyHermesSession();
   return {
     sessionIds: [session.id],
+    deletedSessionIds: [],
     sessionsById: { [session.id]: session },
     activeSessionId: session.id,
     gatewayStatus: "unknown",
@@ -55,6 +56,9 @@ export function loadPersistedHermesChatState(): HermesChatState {
     if (!raw) return createInitialHermesChatState();
     const parsed = JSON.parse(raw) as Partial<HermesChatState>;
     const sessionIds = Array.isArray(parsed.sessionIds) ? parsed.sessionIds : [];
+    const deletedSessionIds = Array.isArray(parsed.deletedSessionIds)
+      ? parsed.deletedSessionIds.filter((id): id is string => typeof id === "string")
+      : [];
     const sessionsById =
       parsed.sessionsById && typeof parsed.sessionsById === "object" ? parsed.sessionsById : {};
     const validSessionIds = sessionIds.filter((id) => Boolean(sessionsById[id]));
@@ -68,6 +72,7 @@ export function loadPersistedHermesChatState(): HermesChatState {
             : validSessionIds[0])!;
     return {
       sessionIds: validSessionIds,
+      deletedSessionIds,
       sessionsById: Object.fromEntries(
         validSessionIds.map((id) => {
           const session = sessionsById[id]!;
@@ -98,6 +103,7 @@ export function persistHermesChatState(state: HermesChatState): void {
   if (typeof window === "undefined") return;
   const persisted: HermesChatState = {
     ...state,
+    deletedSessionIds: state.deletedSessionIds ?? [],
     gatewayStatus: "unknown",
     websocketStatus: "connecting",
     requestInFlight: false,
@@ -153,7 +159,10 @@ export function submitUserMessage(state: HermesChatState, text: string): HermesC
   const session = state.sessionsById[state.activeSessionId] ?? createEmptyHermesSession();
   const createdAt = nowIso();
   const userMessage = createUserMessage(text, createdAt);
-  const nextTitle = session.messages.length === 0 ? buildSessionTitle(text) : session.title;
+  const nextTitle =
+    session.messages.length === 0 && !session.titleManuallyEdited
+      ? buildSessionTitle(text)
+      : session.title;
   return updateSession(state, {
     ...session,
     title: nextTitle,
@@ -164,6 +173,112 @@ export function submitUserMessage(state: HermesChatState, text: string): HermesC
     activeStartedAt: createdAt,
     error: undefined,
   });
+}
+
+export function selectHermesSession(state: HermesChatState, sessionId: string): HermesChatState {
+  if (!state.sessionsById[sessionId] || state.activeSessionId === sessionId) return state;
+  return { ...state, activeSessionId: sessionId };
+}
+
+export function renameHermesSessionTitle(
+  state: HermesChatState,
+  sessionId: string,
+  title: string,
+): HermesChatState {
+  const session = state.sessionsById[sessionId];
+  const normalized = title.replace(/\s+/g, " ").trim();
+  if (!session || !normalized || session.title === normalized) return state;
+  return updateSession(state, {
+    ...session,
+    title: normalized,
+    titleManuallyEdited: true,
+    updatedAt: nowIso(),
+  });
+}
+
+export function archiveHermesSession(state: HermesChatState, sessionId: string): HermesChatState {
+  const session = state.sessionsById[sessionId];
+  if (!session || session.archivedAt) return state;
+  return updateSession(state, { ...session, archivedAt: nowIso(), updatedAt: nowIso() });
+}
+
+export function unarchiveHermesSession(state: HermesChatState, sessionId: string): HermesChatState {
+  const session = state.sessionsById[sessionId];
+  if (!session || !session.archivedAt) return state;
+  return updateSession(state, { ...session, archivedAt: undefined, updatedAt: nowIso() });
+}
+
+export function deleteHermesSession(state: HermesChatState, sessionId: string): HermesChatState {
+  if (!state.sessionsById[sessionId]) return state;
+  const sessionsById = { ...state.sessionsById };
+  delete sessionsById[sessionId];
+  const sessionIds = state.sessionIds.filter((id) => id !== sessionId);
+  const deletedSessionIds = [...new Set([...(state.deletedSessionIds ?? []), sessionId])];
+  if (sessionIds.length === 0) {
+    const empty = createEmptyHermesSession();
+    return {
+      ...state,
+      sessionIds: [empty.id],
+      deletedSessionIds,
+      sessionsById: { [empty.id]: empty },
+      activeSessionId: empty.id,
+      requestInFlight: false,
+    };
+  }
+  return {
+    ...state,
+    sessionIds,
+    deletedSessionIds,
+    sessionsById,
+    activeSessionId: state.activeSessionId === sessionId ? sessionIds[0]! : state.activeSessionId,
+    requestInFlight: state.activeSessionId === sessionId ? false : state.requestInFlight,
+  };
+}
+
+export function hydrateHermesSessionFromRelayTranscript(
+  state: HermesChatState,
+  transcript: unknown,
+): HermesChatState {
+  if (!isRecord(transcript)) return state;
+  const id = readString(transcript, ["session_id", "id", "conversation_id"]);
+  if (!id || state.deletedSessionIds.includes(id)) return state;
+  const existing = state.sessionsById[id];
+  const createdAt =
+    normalizeIsoString(readString(transcript, ["session_start", "created_at", "createdAt"])) ??
+    existing?.createdAt ??
+    nowIso();
+  const updatedAt =
+    normalizeIsoString(readString(transcript, ["last_updated", "updated_at", "updatedAt"])) ??
+    existing?.updatedAt ??
+    createdAt;
+  const messages = transcriptMessagesToChatMessages(transcript.messages, id, createdAt);
+  const toolCalls = transcriptMessagesToToolCalls(transcript.messages, createdAt);
+  const inferredTitle =
+    readString(transcript, ["title", "name"]) ??
+    messages.find((message) => message.role === "user")?.text.slice(0, 80) ??
+    existing?.title ??
+    "Hermes session";
+  const session: HermesSession = {
+    ...(existing ?? createEmptyHermesSession(id, createdAt)),
+    id,
+    title: existing?.titleManuallyEdited ? existing.title : buildSessionTitle(inferredTitle),
+    createdAt,
+    updatedAt,
+    conversationId: id,
+    messages,
+    toolCalls,
+    approvals: existing?.approvals ?? [],
+    structuredInputs: existing?.structuredInputs ?? [],
+    contextUsage: existing?.contextUsage,
+    draft: existing?.draft ?? "",
+    isRunning: existing?.isRunning ?? false,
+    activeAssistantMessageId: existing?.activeAssistantMessageId,
+    activeStartedAt: existing?.activeStartedAt,
+    archivedAt: existing?.archivedAt,
+    titleManuallyEdited: existing?.titleManuallyEdited,
+    error: existing?.error,
+  };
+  return updateSession({ ...state, activeSessionId: id }, session);
 }
 
 export function setDraft(
@@ -898,6 +1013,131 @@ function stringifyDetails(value: unknown): string | undefined {
 
 function mergeStrings(left: readonly string[] = [], right: readonly string[] = []): string[] {
   return [...new Set([...left, ...right])];
+}
+
+function transcriptMessagesToChatMessages(
+  value: unknown,
+  sessionId: string,
+  fallbackCreatedAt: string,
+): HermesChatMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((message, index): HermesChatMessage[] => {
+    if (!isRecord(message)) return [];
+    const role = readString(message, ["role"]);
+    if (role !== "user" && role !== "assistant" && role !== "system") return [];
+    const text = textFromTranscriptMessage(message);
+    if (!text && role === "assistant") return [];
+    const createdAt =
+      normalizeIsoString(readString(message, ["created_at", "createdAt", "timestamp", "time"])) ??
+      fallbackCreatedAt;
+    return [
+      {
+        id: readString(message, ["id"]) ?? `relay-${sessionId}-${index}`,
+        role,
+        text,
+        createdAt,
+        completedAt: role === "assistant" ? createdAt : undefined,
+        streaming: false,
+      },
+    ];
+  });
+}
+
+function transcriptMessagesToToolCalls(
+  value: unknown,
+  fallbackCreatedAt: string,
+): HermesToolCall[] {
+  if (!Array.isArray(value)) return [];
+  const toolResults = new Map<string, Record<string, unknown>>();
+  for (const message of value) {
+    if (!isRecord(message) || readString(message, ["role"]) !== "tool") continue;
+    const id = readString(message, ["tool_call_id", "id", "call_id"]);
+    if (!id) continue;
+    const parsedContent = parseMaybeJson(message.content);
+    toolResults.set(
+      id,
+      isRecord(parsedContent) ? parsedContent : { output: textFromContent(message.content) },
+    );
+  }
+
+  const tools: HermesToolCall[] = [];
+  value.forEach((message, messageIndex) => {
+    if (!isRecord(message)) return;
+    const rawToolCalls = message.tool_calls;
+    if (!Array.isArray(rawToolCalls)) return;
+    rawToolCalls.forEach((toolCall, toolIndex) => {
+      if (!isRecord(toolCall)) return;
+      const id =
+        readString(toolCall, ["id", "call_id", "tool_call_id"]) ??
+        `relay-tool-${messageIndex}-${toolIndex}`;
+      const name = readString(toolCall, ["function.name", "name", "type"]) ?? "tool";
+      const argumentsValue = readPath(toolCall, "function.arguments") ?? toolCall.arguments;
+      const parsedArguments = parseMaybeJson(argumentsValue);
+      const command = isRecord(parsedArguments)
+        ? readString(parsedArguments, ["command", "cmd", "input.command"])
+        : readString(toolCall, ["command", "input.command"]);
+      const result = toolResults.get(id);
+      const output = result
+        ? readString(result, ["output", "stdout", "result", "content"])
+        : undefined;
+      const error = result ? readString(result, ["error", "stderr", "message"]) : undefined;
+      const exitCode = result ? readNumber(result, ["exit_code", "exitCode"]) : undefined;
+      const createdAt =
+        normalizeIsoString(readString(message, ["created_at", "createdAt", "timestamp", "time"])) ??
+        fallbackCreatedAt;
+      tools.push({
+        id,
+        name,
+        description: command ? `Running command: ${command}` : `Using ${name}`,
+        status: error ? "failed" : "completed",
+        createdAt,
+        completedAt: createdAt,
+        command,
+        output,
+        error,
+        exitCode,
+        filePaths: [],
+        details: stringifyDetails(toolCall),
+      });
+    });
+  });
+  return tools;
+}
+
+function textFromTranscriptMessage(message: Record<string, unknown>): string {
+  return textFromContent(message.content);
+}
+
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) =>
+        typeof part === "string"
+          ? part
+          : isRecord(part)
+            ? (readString(part, ["text", "content", "output_text"]) ?? "")
+            : "",
+      )
+      .join("");
+  }
+  return "";
+}
+
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeIsoString(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 function updateSession(state: HermesChatState, session: HermesSession): HermesChatState {

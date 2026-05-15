@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   createEmptyHermesSession,
   createInitialHermesChatState,
+  deleteHermesSession,
+  hydrateHermesSessionFromRelayTranscript,
+  renameHermesSessionTitle,
   reduceHermesWsMessage,
   restoreDraftAfterError,
   setDraft,
@@ -236,6 +239,73 @@ describe("Hermes chat state", () => {
     expect(state.activeSessionId).toBe(secondSession.id);
     expect(state.sessionsById[firstSessionId]!.draft).toBe("updated draft A");
     expect(state.sessionsById[secondSession.id]!.draft).toBe("draft B");
+  });
+
+  it("hydrates full conversation history from a relay session transcript", () => {
+    let state = createInitialHermesChatState();
+    state = hydrateHermesSessionFromRelayTranscript(state, {
+      session_id: "abc",
+      session_start: "2026-05-14T10:00:00Z",
+      last_updated: "2026-05-14T10:05:00Z",
+      messages: [
+        { role: "user", content: "List files" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "tool-1",
+              type: "function",
+              function: { name: "terminal", arguments: '{"command":"ls"}' },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "tool-1",
+          content: '{"output":"README.md", "exit_code":0}',
+        },
+        { role: "assistant", content: "README.md exists" },
+      ],
+    });
+
+    const session = state.sessionsById.abc!;
+    expect(state.activeSessionId).toBe("abc");
+    expect(session.conversationId).toBe("abc");
+    expect(session.messages).toMatchObject([
+      { role: "user", text: "List files" },
+      { role: "assistant", text: "README.md exists", streaming: false },
+    ]);
+    expect(session.toolCalls).toMatchObject([
+      {
+        id: "tool-1",
+        name: "terminal",
+        command: "ls",
+        output: "README.md",
+        exitCode: 0,
+      },
+    ]);
+  });
+
+  it("keeps manually edited titles and hides deleted relay sessions from rehydration", () => {
+    let state = hydrateHermesSessionFromRelayTranscript(createInitialHermesChatState(), {
+      session_id: "abc",
+      messages: [{ role: "user", content: "Original title" }],
+    });
+    state = renameHermesSessionTitle(state, "abc", "Manual title");
+    state = hydrateHermesSessionFromRelayTranscript(state, {
+      session_id: "abc",
+      messages: [{ role: "user", content: "New first prompt" }],
+    });
+    expect(state.sessionsById.abc!.title).toBe("Manual title");
+
+    state = deleteHermesSession(state, "abc");
+    state = hydrateHermesSessionFromRelayTranscript(state, {
+      session_id: "abc",
+      messages: [{ role: "user", content: "Should stay hidden" }],
+    });
+    expect(state.sessionsById.abc).toBeUndefined();
+    expect(state.deletedSessionIds).toContain("abc");
   });
 
   it("tracks structured multi-question input requests", () => {

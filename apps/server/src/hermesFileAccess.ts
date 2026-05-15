@@ -254,7 +254,11 @@ function titleFromSession(session: Record<string, unknown>, fallback: string): s
   return fallback;
 }
 
-async function sessionSummaries(options: HermesFileAccessOptions): Promise<Response> {
+async function sessionSummaries(
+  options: HermesFileAccessOptions,
+  request: Request,
+): Promise<Response> {
+  const query = (new URL(request.url).searchParams.get("q") ?? "").trim().toLowerCase();
   const sessionsDir = join(hermesRoot(options), "sessions");
   if (!(await directoryExists(sessionsDir))) {
     return fileAccessError(404, "sessions_not_found", "Hermes sessions directory was not found");
@@ -281,7 +285,12 @@ async function sessionSummaries(options: HermesFileAccessOptions): Promise<Respo
           : typeof parsed.session_start === "string"
             ? parsed.session_start
             : stats.mtime.toISOString();
-      sessions.push({ id, title: titleFromSession(parsed, fallbackTitle), lastActivity });
+      const title = titleFromSession(parsed, fallbackTitle);
+      if (query) {
+        const searchable = `${id}\n${title}\n${content}`.toLowerCase();
+        if (!searchable.includes(query)) continue;
+      }
+      sessions.push({ id, title, lastActivity });
     } catch {
       continue;
     }
@@ -466,7 +475,8 @@ export async function handleHermesFileAccessRequest(
     return writeMemory(options, path.slice("/api/memory/".length), request);
   }
 
-  if (request.method === "GET" && path === "/api/sessions") return sessionSummaries(options);
+  if (request.method === "GET" && path === "/api/sessions")
+    return sessionSummaries(options, request);
   if (request.method === "GET" && path.startsWith("/api/sessions/")) {
     return readSession(options, path.slice("/api/sessions/".length));
   }

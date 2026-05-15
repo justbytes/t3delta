@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircleIcon,
+  ArchiveIcon,
   BotIcon,
   CheckIcon,
   CheckCircle2Icon,
@@ -9,15 +10,26 @@ import {
   CopyIcon,
   FileIcon,
   Loader2Icon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   SendIcon,
   SquareIcon,
+  Trash2Icon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
 import ChatMarkdown from "./ChatMarkdown";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { cn } from "~/lib/utils";
 import { isElectron } from "../env";
 import { sanitizeErrorMessage } from "../hermesChatState";
@@ -93,6 +105,10 @@ export default function HermesChatView() {
     requestInFlight,
     createSession,
     selectSession,
+    renameSessionTitle,
+    archiveSession,
+    unarchiveSession,
+    deleteSession,
     setDraft,
     submitUserMessage,
     setRequestInFlight,
@@ -104,10 +120,19 @@ export default function HermesChatView() {
     setWebsocketStatus,
     setGatewayStatus,
     syncRelaySessions,
+    hydrateRelaySession,
   } = useHermesChatStore();
   const activeSession = sessionsById[activeSessionId] ?? Object.values(sessionsById)[0]!;
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [sessionSearchResultIds, setSessionSearchResultIds] = useState<readonly string[] | null>(
+    null,
+  );
+  const [showArchivedSessions, setShowArchivedSessions] = useState(false);
+  const [sessionPendingDelete, setSessionPendingDelete] = useState<HermesSession | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renamingTitle, setRenamingTitle] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const failedTextRef = useRef("");
@@ -137,6 +162,38 @@ export default function HermesChatView() {
       disposed = true;
     };
   }, [setGatewayStatus, syncRelaySessions]);
+
+  useEffect(() => {
+    const query = sessionSearch.trim();
+    if (!query) {
+      setSessionSearchResultIds(null);
+      return;
+    }
+    let disposed = false;
+    const timer = window.setTimeout(() => {
+      void fetch(resolveApiUrl(`/api/sessions?q=${encodeURIComponent(query)}`))
+        .then((response) => (response.ok ? response.json() : []))
+        .then((sessions) => {
+          if (!disposed && Array.isArray(sessions)) {
+            setSessionSearchResultIds(
+              sessions
+                .map((session) =>
+                  session && typeof session === "object"
+                    ? (session as { id?: unknown }).id
+                    : undefined,
+                )
+                .filter((id): id is string => typeof id === "string"),
+            );
+            syncRelaySessions(sessions);
+          }
+        })
+        .catch(() => undefined);
+    }, 200);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [sessionSearch, syncRelaySessions]);
 
   useEffect(() => {
     let disposed = false;
@@ -263,6 +320,49 @@ export default function HermesChatView() {
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [sessionIds, sessionsById],
   );
+  const searchText = sessionSearch.trim().toLowerCase();
+  const matchesSessionSearch = useCallback(
+    (session: HermesSession) =>
+      !searchText ||
+      sessionSearchResultIds?.includes(session.id) ||
+      session.title.toLowerCase().includes(searchText) ||
+      session.messages.some((message) => message.text.toLowerCase().includes(searchText)),
+    [searchText, sessionSearchResultIds],
+  );
+  const visibleSessions = orderedSessions.filter(
+    (session) => !session.archivedAt && matchesSessionSearch(session),
+  );
+  const archivedSessions = orderedSessions.filter(
+    (session) => session.archivedAt && matchesSessionSearch(session),
+  );
+  const loadRelaySession = useCallback(
+    async (sessionId: string) => {
+      if (sessionId.startsWith("local-")) return;
+      const response = await fetch(resolveApiUrl(`/api/sessions/${encodeURIComponent(sessionId)}`));
+      if (!response.ok) return;
+      hydrateRelaySession(await response.json());
+    },
+    [hydrateRelaySession],
+  );
+  const selectAndLoadSession = useCallback(
+    (sessionId: string) => {
+      selectSession(sessionId);
+      void loadRelaySession(sessionId);
+    },
+    [loadRelaySession, selectSession],
+  );
+  const commitRename = useCallback(() => {
+    if (!renamingSessionId) return;
+    renameSessionTitle(renamingSessionId, renamingTitle);
+    setRenamingSessionId(null);
+    setRenamingTitle("");
+  }, [renameSessionTitle, renamingSessionId, renamingTitle]);
+  const confirmDeleteSession = useCallback(() => {
+    if (!sessionPendingDelete) return;
+    if (sessionPendingDelete.isRunning) stopResponse();
+    deleteSession(sessionPendingDelete.id);
+    setSessionPendingDelete(null);
+  }, [deleteSession, sessionPendingDelete, stopResponse]);
 
   return (
     <div className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
@@ -279,30 +379,89 @@ export default function HermesChatView() {
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/65">
                 Hermes sessions
               </p>
-              <Button size="icon-xs" variant="ghost" onClick={createSession} title="New session">
+              <Button
+                aria-label="New session"
+                size="icon-xs"
+                variant="ghost"
+                onClick={createSession}
+                title="New session"
+              >
                 <PlusIcon className="size-3.5" />
               </Button>
             </div>
+            <label className="mb-2 block">
+              <span className="sr-only">Search sessions</span>
+              <input
+                className="h-8 w-full rounded-lg border border-border/55 bg-background/60 px-2 text-xs outline-none placeholder:text-muted-foreground/45 focus:border-border"
+                placeholder="Search sessions..."
+                value={sessionSearch}
+                onChange={(event) => setSessionSearch(event.target.value)}
+              />
+            </label>
             <div className="space-y-1 overflow-y-auto">
-              {orderedSessions.map((session) => (
-                <button
+              {visibleSessions.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/50 px-3 py-4 text-center text-xs text-muted-foreground/70">
+                  {searchText
+                    ? "No matching sessions."
+                    : "No sessions yet. Create a session to start chatting."}
+                </div>
+              ) : null}
+              {visibleSessions.map((session) => (
+                <HermesSessionRow
                   key={session.id}
-                  type="button"
-                  className={cn(
-                    "w-full rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                    session.id === activeSession.id
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                  )}
-                  onClick={() => selectSession(session.id)}
-                >
-                  <span className="line-clamp-1">{session.title}</span>
-                  <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60">
-                    {session.isRunning ? <Loader2Icon className="size-3 animate-spin" /> : null}
-                    {new Date(session.updatedAt).toLocaleString()}
-                  </span>
-                </button>
+                  session={session}
+                  activeSessionId={activeSession.id}
+                  renamingSessionId={renamingSessionId}
+                  renamingTitle={renamingTitle}
+                  setRenamingTitle={setRenamingTitle}
+                  onCommitRename={commitRename}
+                  onCancelRename={() => setRenamingSessionId(null)}
+                  onSelect={() => selectAndLoadSession(session.id)}
+                  onStartRename={() => {
+                    setRenamingSessionId(session.id);
+                    setRenamingTitle(session.title);
+                  }}
+                  onArchive={() => archiveSession(session.id)}
+                  onUnarchive={() => unarchiveSession(session.id)}
+                  onDelete={() => setSessionPendingDelete(session)}
+                />
               ))}
+              {archivedSessions.length > 0 ? (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-md px-1 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60 hover:text-foreground"
+                    onClick={() => setShowArchivedSessions((value) => !value)}
+                  >
+                    Archived sessions
+                    <span>{showArchivedSessions ? "Hide" : archivedSessions.length}</span>
+                  </button>
+                  {showArchivedSessions ? (
+                    <div className="mt-1 space-y-1">
+                      {archivedSessions.map((session) => (
+                        <HermesSessionRow
+                          key={session.id}
+                          session={session}
+                          activeSessionId={activeSession.id}
+                          renamingSessionId={renamingSessionId}
+                          renamingTitle={renamingTitle}
+                          setRenamingTitle={setRenamingTitle}
+                          onCommitRename={commitRename}
+                          onCancelRename={() => setRenamingSessionId(null)}
+                          onSelect={() => selectAndLoadSession(session.id)}
+                          onStartRename={() => {
+                            setRenamingSessionId(session.id);
+                            setRenamingTitle(session.title);
+                          }}
+                          onArchive={() => archiveSession(session.id)}
+                          onUnarchive={() => unarchiveSession(session.id)}
+                          onDelete={() => setSessionPendingDelete(session)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </aside>
           <main className="relative flex min-w-0 flex-1 flex-col">
@@ -367,7 +526,126 @@ export default function HermesChatView() {
           </main>
         </div>
       </div>
+      <DeleteSessionDialog
+        session={sessionPendingDelete}
+        onCancel={() => setSessionPendingDelete(null)}
+        onConfirm={confirmDeleteSession}
+      />
     </div>
+  );
+}
+
+const HermesSessionRow = memo(function HermesSessionRow(props: {
+  session: HermesSession;
+  activeSessionId: string;
+  renamingSessionId: string | null;
+  renamingTitle: string;
+  setRenamingTitle: (title: string) => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onSelect: () => void;
+  onStartRename: () => void;
+  onArchive: () => void;
+  onUnarchive: () => void;
+  onDelete: () => void;
+}) {
+  const isRenaming = props.renamingSessionId === props.session.id;
+  return (
+    <div
+      className={cn(
+        "group rounded-lg px-2 py-2 text-sm transition-colors",
+        props.session.id === props.activeSessionId
+          ? "bg-secondary text-foreground"
+          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+      )}
+    >
+      <button type="button" className="w-full text-left" onClick={props.onSelect}>
+        {isRenaming ? (
+          <input
+            autoFocus
+            className="w-full rounded-md border border-border/60 bg-background px-1.5 py-1 text-xs text-foreground"
+            value={props.renamingTitle}
+            onChange={(event) => props.setRenamingTitle(event.target.value)}
+            onBlur={props.onCommitRename}
+            onClick={(event) => event.stopPropagation()}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") props.onCommitRename();
+              if (event.key === "Escape") props.onCancelRename();
+            }}
+          />
+        ) : (
+          <span className="line-clamp-1">{props.session.title}</span>
+        )}
+        <span className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60">
+          {props.session.isRunning ? <Loader2Icon className="size-3 animate-spin" /> : null}
+          {new Date(props.session.updatedAt).toLocaleString()}
+        </span>
+      </button>
+      <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <button
+          type="button"
+          className="rounded p-1 hover:bg-background/70"
+          onClick={props.onStartRename}
+          aria-label={`Rename ${props.session.title}`}
+        >
+          <PencilIcon className="size-3" />
+        </button>
+        <button
+          type="button"
+          className="rounded p-1 hover:bg-background/70"
+          onClick={props.session.archivedAt ? props.onUnarchive : props.onArchive}
+          aria-label={`${props.session.archivedAt ? "Unarchive" : "Archive"} ${props.session.title}`}
+        >
+          <ArchiveIcon className="size-3" />
+        </button>
+        <button
+          type="button"
+          className="rounded p-1 text-red-300 hover:bg-red-500/10"
+          onClick={props.onDelete}
+          aria-label={`Delete ${props.session.title}`}
+        >
+          <Trash2Icon className="size-3" />
+        </button>
+      </div>
+    </div>
+  );
+});
+
+function DeleteSessionDialog(props: {
+  session: HermesSession | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      open={Boolean(props.session)}
+      onOpenChange={(open) => (!open ? props.onCancel() : null)}
+    >
+      <DialogPopup>
+        <DialogPanel>
+          <DialogHeader>
+            <DialogTitle>Delete session?</DialogTitle>
+            <DialogDescription>
+              {props.session
+                ? `Delete "${props.session.title}" permanently from this sidebar.`
+                : "Delete this session permanently from this sidebar."}
+              {props.session?.isRunning
+                ? " The running agent turn will be stopped before deletion."
+                : " This action cannot be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={props.onCancel}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={props.onConfirm}>
+              Delete session
+            </Button>
+          </DialogFooter>
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
   );
 }
 

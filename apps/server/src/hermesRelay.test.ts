@@ -445,6 +445,29 @@ describe("Hermes relay", () => {
     });
   });
 
+  it("filters session metadata by transcript keyword for search", async () => {
+    const hermesDir = await makeHermesFixture();
+    await writeFile(
+      join(hermesDir, "sessions", "session_def.json"),
+      JSON.stringify({
+        session_id: "def",
+        last_updated: "2026-05-14T11:00:00Z",
+        messages: [{ role: "user", content: "Need help with pixel art" }],
+      }),
+    );
+    const server = startTestRelay(async () => Response.json({}), {
+      fileAccess: { hermesDir },
+    });
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/sessions?q=pixel`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      { id: "def", title: "Need help with pixel art", lastActivity: "2026-05-14T11:00:00Z" },
+    ]);
+    server.stop();
+  });
+
   it("runs Hermes skills install and uninstall commands through file-access endpoints", async () => {
     const hermesDir = await makeHermesFixture();
     const commands: Array<ReadonlyArray<string>> = [];

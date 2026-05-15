@@ -61,6 +61,8 @@ export interface HermesStructuredInputRequest {
 export interface HermesSession {
   readonly id: string;
   readonly title: string;
+  readonly titleManuallyEdited?: boolean | undefined;
+  readonly archivedAt?: string | undefined;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly conversationId?: string | undefined;
@@ -79,6 +81,7 @@ export interface HermesSession {
 
 export interface HermesChatState {
   readonly sessionIds: string[];
+  readonly deletedSessionIds: string[];
   readonly sessionsById: Record<string, HermesSession>;
   readonly activeSessionId: string;
   readonly gatewayStatus: HermesGatewayStatus;
