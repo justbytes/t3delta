@@ -252,10 +252,10 @@ export function reduceHermesWsMessage(
     case "response.created":
       return applyResponseCreated(state, envelope.data);
     case "response.output_item.added":
-      return applyToolEvent(state, envelope.data, "running");
+      return applyOutputItemAdded(state, envelope.data);
     case "response.output_item.done":
     case "response.output_item.completed":
-      return applyToolEvent(state, envelope.data, "completed");
+      return applyOutputItemDone(state, envelope.data);
     case "response.content_part.added":
       return ensureAssistantMessage(state, envelope.data);
     case "response.content_part.delta":
@@ -268,11 +268,19 @@ export function reduceHermesWsMessage(
     case "response.failed":
       return applyResponseFailed(state, envelope.data);
     case "approval.requested":
+    case "approval_request.created":
+    case "permission.requested":
+    case "permission_request.created":
     case "response.approval_requested":
     case "response.requires_approval":
+    case "response.permission_requested":
       return applyApprovalRequested(state, envelope.data);
     case "approval.resolved":
+    case "approval_request.resolved":
+    case "permission.resolved":
+    case "permission_request.resolved":
     case "response.approval_resolved":
+    case "response.permission_resolved":
       return applyApprovalResolved(state, envelope.data);
     case "user_input.requested":
     case "user-input.requested":
@@ -332,10 +340,12 @@ function applyResponseCreated(state: HermesChatState, data: unknown): HermesChat
     "response.conversation.id",
   ]);
   const createdAt = nowIso();
+  const contextUsage = extractContextUsage(data) ?? session.contextUsage;
   return updateSession(state, {
     ...session,
     responseId: responseId ?? session.responseId,
     conversationId: conversationId ?? session.conversationId,
+    contextUsage,
     isRunning: true,
     activeStartedAt: session.activeStartedAt ?? createdAt,
     updatedAt: createdAt,
@@ -413,6 +423,7 @@ function applyResponseCompleted(state: HermesChatState, data: unknown): HermesCh
       "response.conversation.id",
     ]) ?? session.conversationId;
   const finalText = extractFinalText(data);
+  const contextUsage = extractContextUsage(data) ?? session.contextUsage;
   const messages =
     session.activeAssistantMessageId && (finalText === undefined || finalText.length === 0)
       ? session.messages
@@ -423,6 +434,7 @@ function applyResponseCompleted(state: HermesChatState, data: unknown): HermesCh
       ...session,
       responseId,
       conversationId,
+      contextUsage,
       messages: messages.map((message) =>
         message.id === session.activeAssistantMessageId
           ? { ...message, streaming: false, completedAt: now }
@@ -438,6 +450,20 @@ function applyResponseCompleted(state: HermesChatState, data: unknown): HermesCh
       error: undefined,
     },
   );
+}
+
+function applyOutputItemAdded(state: HermesChatState, data: unknown): HermesChatState {
+  if (isApprovalRequestPayload(data)) {
+    return applyApprovalRequested(state, data);
+  }
+  return applyToolEvent(state, data, "running");
+}
+
+function applyOutputItemDone(state: HermesChatState, data: unknown): HermesChatState {
+  if (isApprovalRequestPayload(data)) {
+    return applyApprovalResolved(state, data);
+  }
+  return applyToolEvent(state, data, "completed");
 }
 
 function applyResponseFailed(state: HermesChatState, data: unknown): HermesChatState {
@@ -506,6 +532,15 @@ function applyToolEvent(
   });
 }
 
+function isApprovalRequestPayload(data: unknown): boolean {
+  const item =
+    readObject(data, "item") ?? readObject(data, "request") ?? (isRecord(data) ? data : undefined);
+  if (!item) return false;
+  const kind = readString(item, ["type", "kind", "category"]) ?? "";
+  const name = readString(item, ["name", "tool_name", "function.name", "call.name"]) ?? "";
+  return /approval|permission/i.test(kind) || /approval|permission/i.test(name);
+}
+
 function extractToolCall(data: unknown, status: HermesToolStatus): HermesToolCall | null {
   const item = readObject(data, "item") ?? (isRecord(data) ? data : undefined);
   if (!item) return null;
@@ -569,11 +604,26 @@ function applyApprovalRequested(state: HermesChatState, data: unknown): HermesCh
       "description",
       "detail",
       "command",
+      "input.command",
+      "arguments.command",
       "item.command",
       "item.description",
+      "item.action",
+      "item.input.command",
+      "item.arguments.command",
+      "request.command",
       "request.action",
     ]) ?? "Hermes requests approval to continue";
-  const detail = readString(data, ["reason", "summary", "item.summary", "request.detail"]);
+  const detail = readString(data, [
+    "reason",
+    "summary",
+    "detail",
+    "item.reason",
+    "item.summary",
+    "item.detail",
+    "request.reason",
+    "request.detail",
+  ]);
   const approvals = session.approvals ?? [];
   return updateSession(state, {
     ...session,
@@ -705,16 +755,38 @@ function extractErrorMessage(data: unknown): string | undefined {
 }
 
 function extractContextUsage(data: unknown): HermesContextUsage | null {
-  const source = readObject(data, "usage") ?? readObject(data, "response.usage") ?? data;
+  const source =
+    readObject(data, "usage") ??
+    readObject(data, "response.usage") ??
+    readObject(data, "metadata.usage") ??
+    readObject(data, "response.metadata.usage") ??
+    readObject(data, "context_window") ??
+    readObject(data, "contextWindow") ??
+    data;
   const usedTokens = readNumber(source, [
     "used_tokens",
     "usedTokens",
     "input_tokens",
     "total_tokens",
+    "totalTokens",
+    "prompt_tokens",
+    "promptTokens",
+    "context_tokens",
+    "contextTokens",
+    "context_window.used_tokens",
+    "contextWindow.usedTokens",
     "tokens.used",
   ]);
   const maxTokens =
-    readNumber(source, ["max_tokens", "maxTokens", "context_window", "contextWindow"]) ?? null;
+    readNumber(source, [
+      "max_tokens",
+      "maxTokens",
+      "context_window",
+      "contextWindow",
+      "context_window.max_tokens",
+      "contextWindow.maxTokens",
+      "tokens.max",
+    ]) ?? null;
   if (usedTokens === undefined) return null;
   return { usedTokens, maxTokens };
 }
@@ -776,6 +848,7 @@ function mergeStrings(left: readonly string[] = [], right: readonly string[] = [
 }
 
 function updateSession(state: HermesChatState, session: HermesSession): HermesChatState {
+  const sessionAlreadyExists = Boolean(state.sessionsById[session.id]);
   const sessionIds = state.sessionIds.includes(session.id)
     ? state.sessionIds
     : [session.id, ...state.sessionIds];
@@ -786,7 +859,7 @@ function updateSession(state: HermesChatState, session: HermesSession): HermesCh
       ...state.sessionsById,
       [session.id]: session,
     },
-    activeSessionId: session.id,
+    activeSessionId: sessionAlreadyExists ? state.activeSessionId : session.id,
   };
 }
 

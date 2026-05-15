@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createEmptyHermesSession,
   createInitialHermesChatState,
   reduceHermesWsMessage,
   restoreDraftAfterError,
@@ -187,6 +188,56 @@ describe("Hermes chat state", () => {
     expect(session.approvals[0]!.status).toBe("denied");
   });
 
+  it("extracts approval prompts from Hermes output item approval payloads", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Run a command");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.output_item.added",
+      data: {
+        item: {
+          id: "approval-output-item",
+          type: "permission_request",
+          input: { command: "ls -la" },
+          reason: "Shell commands require approval.",
+        },
+      },
+    });
+
+    const session = state.sessionsById[state.activeSessionId]!;
+    expect(session.approvals).toMatchObject([
+      {
+        id: "approval-output-item",
+        action: "ls -la",
+        detail: "Shell commands require approval.",
+        status: "pending",
+      },
+    ]);
+    expect(session.toolCalls).toHaveLength(0);
+  });
+
+  it("preserves session-specific composer drafts without changing active session", () => {
+    const initial = createInitialHermesChatState();
+    const firstSessionId = initial.activeSessionId;
+    const secondSession = createEmptyHermesSession("session-b");
+    let state = {
+      ...initial,
+      sessionIds: [firstSessionId, secondSession.id],
+      sessionsById: {
+        ...initial.sessionsById,
+        [secondSession.id]: secondSession,
+      },
+    };
+
+    state = setDraft(state, firstSessionId, "draft A");
+    state = { ...state, activeSessionId: secondSession.id };
+    state = setDraft(state, secondSession.id, "draft B");
+    state = setDraft(state, firstSessionId, "updated draft A");
+
+    expect(state.activeSessionId).toBe(secondSession.id);
+    expect(state.sessionsById[firstSessionId]!.draft).toBe("updated draft A");
+    expect(state.sessionsById[secondSession.id]!.draft).toBe("draft B");
+  });
+
   it("tracks structured multi-question input requests", () => {
     let state = submitUserMessage(createInitialHermesChatState(), "Plan a trip");
     state = reduceHermesWsMessage(state, {
@@ -261,5 +312,26 @@ describe("Hermes chat state", () => {
       filePaths: ["apps/web/package.json"],
     });
     expect(session.contextUsage).toEqual({ usedTokens: 12_000, maxTokens: 16_000 });
+  });
+
+  it("updates context usage from completed response metadata", () => {
+    let state = submitUserMessage(createInitialHermesChatState(), "Hello");
+    state = reduceHermesWsMessage(state, {
+      type: "hermes.sse",
+      event: "response.completed",
+      data: {
+        response: {
+          usage: {
+            total_tokens: 1234,
+            max_tokens: 8192,
+          },
+        },
+      },
+    });
+
+    expect(state.sessionsById[state.activeSessionId]!.contextUsage).toEqual({
+      usedTokens: 1234,
+      maxTokens: 8192,
+    });
   });
 });

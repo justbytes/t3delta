@@ -46,6 +46,33 @@ function resolveWsUrl(): string {
   return `${protocol}//${window.location.host}/ws`;
 }
 
+export function normalizeWorkspaceFileResults(body: unknown): string[] {
+  const records = (body && typeof body === "object" ? body : {}) as {
+    files?: unknown;
+    entries?: unknown;
+    results?: unknown;
+  };
+  const raw = Array.isArray(records.files)
+    ? records.files
+    : Array.isArray(records.entries)
+      ? records.entries
+      : Array.isArray(records.results)
+        ? records.results
+        : Array.isArray(body)
+          ? body
+          : [];
+  return raw
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        const candidate = entry as { path?: unknown; relativePath?: unknown; name?: unknown };
+        return candidate.path ?? candidate.relativePath ?? candidate.name;
+      }
+      return undefined;
+    })
+    .filter((path): path is string => typeof path === "string" && path.length > 0);
+}
+
 async function readJsonError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
@@ -366,9 +393,23 @@ const HermesHeader = memo(function HermesHeader(props: {
             <h1 className="truncate text-sm font-medium text-foreground">
               {props.activeSession.title}
             </h1>
-            <p className="text-[11px] text-muted-foreground/60">
-              Gateway {props.gatewayStatus} • WebSocket {props.websocketStatus}
-            </p>
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground/60">
+              <span>
+                Gateway {props.gatewayStatus} • WebSocket {props.websocketStatus}
+              </span>
+              {props.activeSession.contextUsage ? (
+                <>
+                  <span aria-hidden="true">•</span>
+                  <span>
+                    Context {props.activeSession.contextUsage.usedTokens.toLocaleString()}
+                    {props.activeSession.contextUsage.maxTokens
+                      ? ` / ${props.activeSession.contextUsage.maxTokens.toLocaleString()}`
+                      : ""}{" "}
+                    tokens
+                  </span>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={props.onNewSession}>
@@ -873,10 +914,7 @@ function HermesComposer(props: {
         signal: controller.signal,
       })
         .then((response) => (response.ok ? response.json() : { files: [] }))
-        .then((body) => {
-          const files: unknown[] = Array.isArray(body?.files) ? body.files : [];
-          setMentionFiles(files.filter((file): file is string => typeof file === "string"));
-        })
+        .then((body) => setMentionFiles(normalizeWorkspaceFileResults(body)))
         .catch(() => setMentionFiles([]))
         .finally(() => setMentionLoading(false));
     }, 180);
