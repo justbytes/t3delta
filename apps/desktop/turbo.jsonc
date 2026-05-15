@@ -7,16 +7,16 @@
       "outputs": ["dist-electron/**"],
     },
     "dev": {
-      "dependsOn": ["delta#build"],
+      "dependsOn": ["t3delta#build"],
       "persistent": true,
     },
     "start": {
-      "dependsOn": ["build", "@t3delta/web#build", "delta#build"],
+      "dependsOn": ["build", "@t3delta/web#build", "t3delta#build"],
       "cache": false,
       "persistent": true,
     },
     "smoke-test": {
-      "dependsOn": ["build", "@t3delta/web#build", "delta#build"],
+      "dependsOn": ["build", "@t3delta/web#build", "t3delta#build"],
       "cache": false,
       "outputs": [],
     },
