@@ -278,7 +278,18 @@ export function hydrateHermesSessionFromRelayTranscript(
     titleManuallyEdited: existing?.titleManuallyEdited,
     error: existing?.error,
   };
-  return updateSession({ ...state, activeSessionId: id }, session);
+  const activeSession = state.sessionsById[state.activeSessionId];
+  const shouldActivateHydratedSession =
+    state.activeSessionId === id ||
+    !activeSession ||
+    (state.activeSessionId === DEFAULT_SESSION_ID &&
+      activeSession.messages.length === 0 &&
+      !activeSession.draft);
+  const nextState = updateSession(state, session);
+  return {
+    ...nextState,
+    activeSessionId: shouldActivateHydratedSession ? id : state.activeSessionId,
+  };
 }
 
 export function setDraft(

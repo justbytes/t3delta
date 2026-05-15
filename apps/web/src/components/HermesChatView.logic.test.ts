@@ -117,4 +117,25 @@ describe("normalizeHermesJobs", () => {
       },
     ]);
   });
+
+  it("does not expose the full raw job record as config when config is missing", () => {
+    expect(
+      normalizeHermesJobs({
+        jobs: [
+          {
+            id: "without-config",
+            name: "Without config",
+            status: "completed",
+            output: "done",
+          },
+        ],
+      }),
+    ).toMatchObject([
+      {
+        id: "without-config",
+        config: "{}",
+        output: "done",
+      },
+    ]);
+  });
 });

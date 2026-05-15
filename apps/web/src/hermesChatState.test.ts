@@ -297,6 +297,30 @@ describe("Hermes chat state", () => {
     ]);
   });
 
+  it("does not reactivate an older relay hydration after the user switches sessions", () => {
+    const sessionA = createEmptyHermesSession("session-a", "2026-05-14T10:00:00.000Z");
+    const sessionB = createEmptyHermesSession("session-b", "2026-05-14T10:01:00.000Z");
+    let state = {
+      ...createInitialHermesChatState(),
+      sessionIds: [sessionA.id, sessionB.id],
+      sessionsById: {
+        [sessionA.id]: sessionA,
+        [sessionB.id]: sessionB,
+      },
+      activeSessionId: sessionB.id,
+    };
+
+    state = hydrateHermesSessionFromRelayTranscript(state, {
+      session_id: sessionA.id,
+      messages: [{ role: "user", content: "Late response from session A" }],
+    });
+
+    expect(state.activeSessionId).toBe(sessionB.id);
+    expect(state.sessionsById[sessionA.id]!.messages).toMatchObject([
+      { role: "user", text: "Late response from session A" },
+    ]);
+  });
+
   it("keeps manually edited titles and hides deleted relay sessions from rehydration", () => {
     let state = hydrateHermesSessionFromRelayTranscript(createInitialHermesChatState(), {
       session_id: "abc",

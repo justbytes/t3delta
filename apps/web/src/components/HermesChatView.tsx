@@ -279,7 +279,7 @@ export function normalizeHermesJobs(body: unknown): HermesJobSummary[] {
         schedule:
           readRecordString(record, ["schedule", "cron", "interval", "next_run"]) ?? "Manual",
         status: normalizeJobStatus(record.status ?? record.state),
-        config: formatJson(record.config ?? record),
+        config: formatJson(record.config ?? {}),
         output: formatJson(record.output ?? record.last_output ?? record.stdout),
         error: formatJson(record.error ?? record.last_error ?? record.stderr),
         history: historySource.map((item) => formatJson(item)).filter(Boolean),
