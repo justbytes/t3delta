@@ -118,9 +118,10 @@ const CODE_RULE_SEVERITY_LABELS: Record<CodeRuleSeverity, string> = {
 type InstallProviderSettings = {
   provider: ProviderKind;
   title: string;
+  showCliSettings?: boolean;
   binaryPlaceholder: string;
   binaryDescription: ReactNode;
-  homePathKey?: "hermesHomePath";
+  homePathKey?: "codexHomePath";
   homePlaceholder?: string;
   homeDescription?: ReactNode;
 };
@@ -129,17 +130,18 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
   {
     provider: "hermes",
     title: "Hermes",
-    binaryPlaceholder: "Hermes binary path",
-    binaryDescription: "Path to the Hermes binary",
-    homePathKey: "hermesHomePath",
-    homePlaceholder: "CODEX_HOME",
-    homeDescription: "Optional custom Hermes home and config directory.",
+    showCliSettings: false,
+    binaryPlaceholder: "",
+    binaryDescription: "",
   },
   {
-    provider: "hermes",
-    title: "Hermes",
-    binaryPlaceholder: "Hermes binary path",
-    binaryDescription: "Path to the Hermes binary",
+    provider: "codex",
+    title: "Codex CLI",
+    binaryPlaceholder: "Codex binary path",
+    binaryDescription: "Path to the Codex binary",
+    homePathKey: "codexHomePath",
+    homePlaceholder: "CODEX_HOME",
+    homeDescription: "Optional custom Codex home and config directory.",
   },
 ] as const;
 
@@ -675,12 +677,17 @@ export function GeneralSettingsPanel() {
     Partial<Record<"keybindings" | "logsDirectory", string | null>>
   >({});
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
-    hermes: Boolean(
-      settings.providers.hermes.binaryPath !==
-        DEFAULT_UNIFIED_SETTINGS.providers.hermes.binaryPath ||
-      settings.providers.hermes.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.hermes.homePath ||
-      settings.providers.hermes.customModels.length > 0 ||
-      settings.providers.hermes.launchArgs !== "",
+    hermes: settings.providers.hermes.customModels.length > 0,
+    codex: Boolean(
+      settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
+      settings.providers.codex.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
+      settings.providers.codex.customModels.length > 0,
+    ),
+    claudeAgent: Boolean(
+      settings.providers.claudeAgent.binaryPath !==
+        DEFAULT_UNIFIED_SETTINGS.providers.claudeAgent.binaryPath ||
+      settings.providers.claudeAgent.customModels.length > 0 ||
+      settings.providers.claudeAgent.launchArgs !== "",
     ),
   });
   const [openCodeRuleDetails, setOpenCodeRuleDetails] = useState<Record<string, boolean>>({
@@ -698,6 +705,8 @@ export function GeneralSettingsPanel() {
     Record<ProviderKind, string>
   >({
     hermes: "",
+    codex: "",
+    claudeAgent: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
@@ -724,7 +733,7 @@ export function GeneralSettingsPanel() {
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
-  const hermesHomePath = settings.providers.hermes.homePath;
+  const codexHomePath = settings.providers.codex.homePath;
   const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
   const diagnosticsDescription = (() => {
     const exports: string[] = [];
@@ -908,12 +917,13 @@ export function GeneralSettingsPanel() {
     return {
       provider: providerSettings.provider,
       title: providerSettings.title,
+      showCliSettings: providerSettings.showCliSettings ?? true,
       binaryPlaceholder: providerSettings.binaryPlaceholder,
       binaryDescription: providerSettings.binaryDescription,
       homePathKey: providerSettings.homePathKey,
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,
-      binaryPathValue: providerConfig.binaryPath,
+      binaryPathValue: "binaryPath" in providerConfig ? providerConfig.binaryPath : "",
       isDirty: !Equal.equals(providerConfig, defaultProviderConfig),
       liveProvider,
       models,
@@ -2509,103 +2519,76 @@ export function GeneralSettingsPanel() {
               >
                 <CollapsibleContent>
                   <div className="space-y-0">
-                    <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                      <label
-                        htmlFor={`provider-install-${providerCard.provider}-binary-path`}
-                        className="block"
-                      >
-                        <span className="text-xs font-medium text-foreground">
-                          {providerDisplayName} binary path
-                        </span>
-                        <Input
-                          id={`provider-install-${providerCard.provider}-binary-path`}
-                          className="mt-1.5"
-                          value={providerCard.binaryPathValue}
-                          onChange={(event) =>
-                            updateSettings({
-                              providers: {
-                                ...settings.providers,
-                                [providerCard.provider]: {
-                                  ...settings.providers[providerCard.provider],
-                                  binaryPath: event.target.value,
-                                },
-                              },
-                            })
-                          }
-                          placeholder={providerCard.binaryPlaceholder}
-                          spellCheck={false}
-                        />
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {providerCard.binaryDescription}
-                        </span>
-                      </label>
-                    </div>
-
-                    {providerCard.homePathKey ? (
-                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                        <label
-                          htmlFor={`provider-install-${providerCard.homePathKey}`}
-                          className="block"
-                        >
-                          <span className="text-xs font-medium text-foreground">
-                            CODEX_HOME path
-                          </span>
-                          <Input
-                            id={`provider-install-${providerCard.homePathKey}`}
-                            className="mt-1.5"
-                            value={hermesHomePath}
-                            onChange={(event) =>
-                              updateSettings({
-                                providers: {
-                                  ...settings.providers,
-                                  hermes: {
-                                    ...settings.providers.hermes,
-                                    homePath: event.target.value,
-                                  },
-                                },
-                              })
-                            }
-                            placeholder={providerCard.homePlaceholder}
-                            spellCheck={false}
-                          />
-                          {providerCard.homeDescription ? (
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              {providerCard.homeDescription}
+                    {providerCard.showCliSettings ? (
+                      <>
+                        <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                          <label
+                            htmlFor={`provider-install-${providerCard.provider}-binary-path`}
+                            className="block"
+                          >
+                            <span className="text-xs font-medium text-foreground">
+                              {providerDisplayName} binary path
                             </span>
-                          ) : null}
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {providerCard.provider === "hermes" ? (
-                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                        <label htmlFor="provider-install-hermes-launch-args" className="block">
-                          <span className="text-xs font-medium text-foreground">
-                            Launch arguments
-                          </span>
-                          <Input
-                            id="provider-install-hermes-launch-args"
-                            className="mt-1.5"
-                            value={settings.providers.hermes.launchArgs}
-                            onChange={(event) =>
-                              updateSettings({
-                                providers: {
-                                  ...settings.providers,
-                                  hermes: {
-                                    ...settings.providers.hermes,
-                                    launchArgs: event.target.value,
+                            <Input
+                              id={`provider-install-${providerCard.provider}-binary-path`}
+                              className="mt-1.5"
+                              value={providerCard.binaryPathValue}
+                              onChange={(event) =>
+                                updateSettings({
+                                  providers: {
+                                    ...settings.providers,
+                                    [providerCard.provider]: {
+                                      ...settings.providers[providerCard.provider],
+                                      binaryPath: event.target.value,
+                                    },
                                   },
-                                },
-                              })
-                            }
-                            placeholder="e.g. --chrome"
-                            spellCheck={false}
-                          />
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            Additional CLI arguments passed to Hermes Code on session start.
-                          </span>
-                        </label>
-                      </div>
+                                })
+                              }
+                              placeholder={providerCard.binaryPlaceholder}
+                              spellCheck={false}
+                            />
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {providerCard.binaryDescription}
+                            </span>
+                          </label>
+                        </div>
+
+                        {providerCard.homePathKey ? (
+                          <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                            <label
+                              htmlFor={`provider-install-${providerCard.homePathKey}`}
+                              className="block"
+                            >
+                              <span className="text-xs font-medium text-foreground">
+                                CODEX_HOME path
+                              </span>
+                              <Input
+                                id={`provider-install-${providerCard.homePathKey}`}
+                                className="mt-1.5"
+                                value={codexHomePath}
+                                onChange={(event) =>
+                                  updateSettings({
+                                    providers: {
+                                      ...settings.providers,
+                                      codex: {
+                                        ...settings.providers.codex,
+                                        homePath: event.target.value,
+                                      },
+                                    },
+                                  })
+                                }
+                                placeholder={providerCard.homePlaceholder}
+                                spellCheck={false}
+                              />
+                              {providerCard.homeDescription ? (
+                                <span className="mt-1 block text-xs text-muted-foreground">
+                                  {providerCard.homeDescription}
+                                </span>
+                              ) : null}
+                            </label>
+                          </div>
+                        ) : null}
+                      </>
                     ) : null}
 
                     <div className="border-t border-border/60 px-4 py-3 sm:px-5">
@@ -2717,11 +2700,7 @@ export function GeneralSettingsPanel() {
                             event.preventDefault();
                             addCustomModel(providerCard.provider);
                           }}
-                          placeholder={
-                            providerCard.provider === "hermes"
-                              ? "gpt-6.7-hermes-ultra-preview"
-                              : "hermes-sonnet-5-0"
-                          }
+                          placeholder="openai-codex/gpt-5.5"
                           spellCheck={false}
                         />
                         <Button

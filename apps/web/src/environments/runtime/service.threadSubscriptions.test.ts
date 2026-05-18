@@ -98,8 +98,8 @@ function makeThreadShellSnapshot(params: {
         projectId,
         title: "Thread",
         modelSelection: {
-          provider: "hermes",
-          model: "gpt-5-hermes",
+          provider: "codex",
+          model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -123,7 +123,7 @@ function makeThreadShellSnapshot(params: {
           ? {
               threadId: params.threadId,
               status: params.sessionStatus,
-              providerName: "hermes",
+              providerName: "codex",
               runtimeMode: "full-access",
               activeTurnId: params.sessionStatus === "running" ? turnId : null,
               lastError: null,

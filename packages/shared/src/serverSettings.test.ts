@@ -57,7 +57,7 @@ describe("serverSettings helpers", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
       textGenerationModelSelection: {
-        provider: "hermes" as const,
+        provider: "codex" as const,
         model: "gpt-5.4-mini",
         options: {
           reasoningEffort: "high" as const,
@@ -69,12 +69,12 @@ describe("serverSettings helpers", () => {
     expect(
       applyServerSettingsPatch(current, {
         textGenerationModelSelection: {
-          provider: "hermes",
+          provider: "codex",
           model: "gpt-5.4-mini",
         },
       }).textGenerationModelSelection,
     ).toEqual({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4-mini",
     });
   });
@@ -83,7 +83,7 @@ describe("serverSettings helpers", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
       textGenerationModelSelection: {
-        provider: "hermes" as const,
+        provider: "codex" as const,
         model: "gpt-5.4-mini",
         options: {
           reasoningEffort: "high" as const,
@@ -101,7 +101,7 @@ describe("serverSettings helpers", () => {
         },
       }).textGenerationModelSelection,
     ).toEqual({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4-mini",
       options: {
         reasoningEffort: "high",

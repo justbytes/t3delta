@@ -46,7 +46,6 @@ import {
 import { configureClientTracing } from "../observability/clientTracing";
 import {
   ensurePrimaryEnvironmentReady,
-  readPrimaryEnvironmentDescriptor,
   resolveInitialServerAuthGateState,
   updatePrimaryEnvironmentDescriptor,
 } from "../environments/primary";
@@ -56,8 +55,8 @@ export const Route = createRootRouteWithContext<{
 }>()({
   beforeLoad: async () => {
     const [, authGateState] = await Promise.all([
-      ensurePrimaryEnvironmentReady().catch(() => null),
-      resolveInitialServerAuthGateState().catch(() => ({ status: "authenticated" as const })),
+      ensurePrimaryEnvironmentReady(),
+      resolveInitialServerAuthGateState(),
     ]);
     return {
       authGateState,
@@ -89,16 +88,6 @@ function RootRouteView() {
 
   if (authGateState.status !== "authenticated") {
     return <Outlet />;
-  }
-
-  if (!readPrimaryEnvironmentDescriptor()) {
-    return (
-      <ToastProvider>
-        <AnchoredToastProvider>
-          <Outlet />
-        </AnchoredToastProvider>
-      </ToastProvider>
-    );
   }
 
   return (

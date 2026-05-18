@@ -1,7 +1,7 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
-  type HermesReasoningEffort,
+  type ClaudeAgentEffort,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -25,7 +25,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3delta/client-runtime";
-import { applyHermesPromptEffortPrefix } from "@t3delta/shared/model";
+import { applyClaudePromptEffortPrefix } from "@t3delta/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3delta/shared/projectScripts";
 import { truncate } from "@t3delta/shared/String";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -309,10 +309,7 @@ function formatOutgoingPrompt(params: {
 }): string {
   const caps = getProviderModelCapabilities(params.models, params.model, params.provider);
   if (params.effort && caps.promptInjectedEffortLevels.includes(params.effort)) {
-    return applyHermesPromptEffortPrefix(
-      params.text,
-      params.effort as HermesReasoningEffort | null,
-    );
+    return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeAgentEffort | null);
   }
   return params.text;
 }
@@ -2801,7 +2798,7 @@ export default function ChatView(props: ChatViewProps) {
         model:
           ctxSelectedModel ||
           activeProject.defaultModelSelection?.model ||
-          DEFAULT_MODEL_BY_PROVIDER.hermes,
+          DEFAULT_MODEL_BY_PROVIDER[ctxSelectedProvider],
         ...(ctxSelectedModelSelection.options
           ? { options: ctxSelectedModelSelection.options }
           : {}),

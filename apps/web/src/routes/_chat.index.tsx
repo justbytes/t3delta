@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import HermesChatView from "../components/HermesChatView";
+import { NoActiveThreadState } from "../components/NoActiveThreadState";
 
 function ChatIndexRouteView() {
-  return <HermesChatView />;
+  return <NoActiveThreadState />;
 }
 
 export const Route = createFileRoute("/_chat/")({

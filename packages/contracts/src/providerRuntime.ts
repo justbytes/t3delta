@@ -17,7 +17,14 @@ import { ProviderKind } from "./orchestration.ts";
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
 
-const RuntimeEventRawSource = Schema.Literals(["hermes.sse", "hermes.gateway", "hermes.relay"]);
+const RuntimeEventRawSource = Schema.Literals([
+  "codex.app-server.notification",
+  "codex.app-server.request",
+  "codex.eventmsg",
+  "claude.sdk.message",
+  "claude.sdk.permission",
+  "codex.sdk.thread-event",
+]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 
 export const RuntimeEventRaw = Schema.Struct({

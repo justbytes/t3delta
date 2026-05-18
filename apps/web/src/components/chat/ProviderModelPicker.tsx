@@ -12,15 +12,15 @@ import {
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
-  MenuSeparator as MenuDivider,
   MenuSub,
   MenuSubPopup,
   MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
-import { CursorIcon, Gemini, Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import { ClaudeAI, CursorIcon, Icon, OpenAI } from "../Icons";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
+import hermesLogoUrl from "../../../../../assets/hermes-logo.png";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderKind;
@@ -31,22 +31,33 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
 }
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
-  hermes: OpenAI,
+  hermes: HermesIcon,
+  codex: OpenAI,
+  claudeAgent: ClaudeAI,
   cursor: CursorIcon,
 };
 
+function HermesIcon({ className, "aria-hidden": ariaHidden }: Parameters<Icon>[0]) {
+  return (
+    <img
+      alt=""
+      aria-hidden={ariaHidden}
+      src={hermesLogoUrl}
+      className={cn("object-contain", className)}
+    />
+  );
+}
+
 export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
-const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
-const COMING_SOON_PROVIDER_OPTIONS = [
-  { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
-  { id: "gemini", label: "Gemini", icon: Gemini },
-] as const;
 
 function providerIconClassName(
   provider: ProviderKind | ProviderPickerKind,
   fallbackClassName: string,
 ): string {
-  return provider === "hermes" ? "text-[#d97757]" : fallbackClassName;
+  if (provider === "hermes") {
+    return "size-5";
+  }
+  return fallbackClassName;
 }
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
@@ -65,6 +76,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
+  const activeProviderLabel =
+    AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === activeProvider)?.label ??
+    activeProvider;
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
@@ -79,6 +93,17 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel);
     setIsMenuOpen(false);
+  };
+  const handleProviderSelect = (provider: ProviderKind) => {
+    if (props.disabled) return;
+    const options = props.modelOptionsByProvider[provider];
+    const currentModel =
+      provider === props.provider
+        ? props.model
+        : (options.find((option) => !("isCustom" in option) || !option.isCustom)?.slug ??
+          options[0]?.slug);
+    if (!currentModel) return;
+    handleModelChange(provider, currentModel);
   };
 
   return (
@@ -121,7 +146,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               props.activeProviderIconClassName,
             )}
           />
-          <span className="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
+          <span className="min-w-0 flex-1 truncate">
+            {activeProvider === "hermes"
+              ? activeProviderLabel
+              : `${activeProviderLabel} · ${selectedModelLabel}`}
+          </span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
@@ -172,9 +201,23 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   </MenuItem>
                 );
               }
+              if (option.value === "hermes") {
+                return (
+                  <MenuItem key={option.value} onClick={() => handleProviderSelect(option.value)}>
+                    <OptionIcon
+                      aria-hidden="true"
+                      className={cn(
+                        "size-4 shrink-0",
+                        providerIconClassName(option.value, "text-muted-foreground/85"),
+                      )}
+                    />
+                    {option.label}
+                  </MenuItem>
+                );
+              }
               return (
                 <MenuSub key={option.value}>
-                  <MenuSubTrigger>
+                  <MenuSubTrigger onClick={() => handleProviderSelect(option.value)}>
                     <OptionIcon
                       aria-hidden="true"
                       className={cn(
@@ -203,35 +246,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     </MenuGroup>
                   </MenuSubPopup>
                 </MenuSub>
-              );
-            })}
-            {UNAVAILABLE_PROVIDER_OPTIONS.length > 0 && <MenuDivider />}
-            {UNAVAILABLE_PROVIDER_OPTIONS.map((option) => {
-              const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-              return (
-                <MenuItem key={option.value} disabled>
-                  <OptionIcon
-                    aria-hidden="true"
-                    className="size-4 shrink-0 text-muted-foreground/85 opacity-80"
-                  />
-                  <span>{option.label}</span>
-                  <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                    Coming soon
-                  </span>
-                </MenuItem>
-              );
-            })}
-            {UNAVAILABLE_PROVIDER_OPTIONS.length === 0 && <MenuDivider />}
-            {COMING_SOON_PROVIDER_OPTIONS.map((option) => {
-              const OptionIcon = option.icon;
-              return (
-                <MenuItem key={option.id} disabled>
-                  <OptionIcon aria-hidden="true" className="size-4 shrink-0 opacity-80" />
-                  <span>{option.label}</span>
-                  <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                    Coming soon
-                  </span>
-                </MenuItem>
               );
             })}
           </>

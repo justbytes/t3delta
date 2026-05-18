@@ -36,11 +36,28 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     title: "Hermes",
     description: "Save additional Hermes model slugs for the picker and `/model` command.",
     placeholder: "your-hermes-model-slug",
-    example: "hermes-sonnet-5-0",
+    example: "openai-codex/gpt-5.5",
+  },
+  codex: {
+    provider: "codex",
+    title: "Codex CLI",
+    description: "Save additional Codex CLI model slugs for the picker and `/model` command.",
+    placeholder: "your-codex-model-slug",
+    example: "gpt-5.4",
+  },
+  claudeAgent: {
+    provider: "claudeAgent",
+    title: "Claude",
+    description: "Save additional Claude model slugs for the picker and `/model` command.",
+    placeholder: "your-claude-model-slug",
+    example: "claude-sonnet-5-0",
   },
 };
 
-export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
+export const MODEL_PROVIDER_SETTINGS = [
+  PROVIDER_CUSTOM_MODEL_CONFIG.hermes,
+  PROVIDER_CUSTOM_MODEL_CONFIG.codex,
+];
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
@@ -151,6 +168,18 @@ export function getCustomModelOptionsByProvider(
       providers,
       "hermes",
       selectedProvider === "hermes" ? selectedModel : undefined,
+    ),
+    codex: getAppModelOptions(
+      settings,
+      providers,
+      "codex",
+      selectedProvider === "codex" ? selectedModel : undefined,
+    ),
+    claudeAgent: getAppModelOptions(
+      settings,
+      providers,
+      "claudeAgent",
+      selectedProvider === "claudeAgent" ? selectedModel : undefined,
     ),
   };
 }

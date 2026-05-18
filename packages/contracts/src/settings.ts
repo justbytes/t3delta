@@ -2,7 +2,11 @@ import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { PositiveInt, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { HermesModelOptions, DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER } from "./model.ts";
+import {
+  ClaudeModelOptions,
+  CodexModelOptions,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+} from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -293,14 +297,27 @@ const makeBinaryPathSetting = (fallback: string) =>
     Schema.withDecodingDefault(Effect.succeed(fallback)),
   );
 
-export const HermesProviderSettings = Schema.Struct({
+export const CodexSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  binaryPath: makeBinaryPathSetting("hermes"),
+  binaryPath: makeBinaryPathSetting("codex"),
   homePath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type CodexSettings = typeof CodexSettings.Type;
+
+export const HermesSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type HermesSettings = typeof HermesSettings.Type;
+
+export const ClaudeSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  binaryPath: makeBinaryPathSetting("claude"),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   launchArgs: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 });
-export type HermesProviderSettings = typeof HermesProviderSettings.Type;
+export type ClaudeSettings = typeof ClaudeSettings.Type;
 
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -398,7 +415,9 @@ export const ServerSettings = Schema.Struct({
 
   // Provider specific settings
   providers: Schema.Struct({
-    hermes: HermesProviderSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    hermes: HermesSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   languageServers: Schema.Struct({
     typescript: TypeScriptLanguageServerSettings.pipe(
@@ -443,24 +462,53 @@ export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
 
 // ── Server Settings Patch (replace with a Schema.deepPartial if available) ──────────────────────────────────────────
 
-const HermesModelOptionsPatch = Schema.Struct({
-  thinking: Schema.optionalKey(HermesModelOptions.fields.thinking),
-  effort: Schema.optionalKey(HermesModelOptions.fields.effort),
-  reasoningEffort: Schema.optionalKey(HermesModelOptions.fields.reasoningEffort),
-  fastMode: Schema.optionalKey(HermesModelOptions.fields.fastMode),
-  contextWindow: Schema.optionalKey(HermesModelOptions.fields.contextWindow),
+const CodexModelOptionsPatch = Schema.Struct({
+  reasoningEffort: Schema.optionalKey(CodexModelOptions.fields.reasoningEffort),
+  fastMode: Schema.optionalKey(CodexModelOptions.fields.fastMode),
 });
 
-const ModelSelectionPatch = Schema.Struct({
-  provider: Schema.optionalKey(Schema.Literal("hermes")),
-  model: Schema.optionalKey(TrimmedNonEmptyString),
-  options: Schema.optionalKey(HermesModelOptionsPatch),
+const HermesModelOptionsPatch = Schema.Struct({});
+
+const ClaudeModelOptionsPatch = Schema.Struct({
+  thinking: Schema.optionalKey(ClaudeModelOptions.fields.thinking),
+  effort: Schema.optionalKey(ClaudeModelOptions.fields.effort),
+  fastMode: Schema.optionalKey(ClaudeModelOptions.fields.fastMode),
+  contextWindow: Schema.optionalKey(ClaudeModelOptions.fields.contextWindow),
 });
 
-const HermesProviderSettingsPatch = Schema.Struct({
+const ModelSelectionPatch = Schema.Union([
+  Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("hermes")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(HermesModelOptionsPatch),
+  }),
+  Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("codex")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(CodexModelOptionsPatch),
+  }),
+  Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("claudeAgent")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(ClaudeModelOptionsPatch),
+  }),
+]);
+
+const CodexSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
   homePath: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+const HermesSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+const ClaudeSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
   launchArgs: Schema.optionalKey(Schema.String),
 });
@@ -614,7 +662,9 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   providers: Schema.optionalKey(
     Schema.Struct({
-      hermes: Schema.optionalKey(HermesProviderSettingsPatch),
+      hermes: Schema.optionalKey(HermesSettingsPatch),
+      codex: Schema.optionalKey(CodexSettingsPatch),
+      claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
     }),
   ),
   languageServers: Schema.optionalKey(

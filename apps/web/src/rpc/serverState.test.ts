@@ -40,7 +40,7 @@ const configListeners = new Set<(event: ServerConfigStreamEvent) => void>();
 
 const defaultProviders: ReadonlyArray<ServerProvider> = [
   {
-    provider: "hermes",
+    provider: "codex",
     enabled: true,
     installed: true,
     version: "0.116.0",

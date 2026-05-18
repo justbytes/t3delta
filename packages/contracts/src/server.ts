@@ -58,6 +58,18 @@ export const ServerProviderModel = Schema.Struct({
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 
+export const ServerProviderCapabilities = Schema.Struct({
+  modelSelection: Schema.Boolean,
+  slashCommands: Schema.Boolean,
+  skills: Schema.Boolean,
+  runtimeMode: Schema.Boolean,
+  interactionMode: Schema.Boolean,
+  approvalPolicy: Schema.Boolean,
+  sandboxMode: Schema.Boolean,
+  providerOptions: Schema.Boolean,
+});
+export type ServerProviderCapabilities = typeof ServerProviderCapabilities.Type;
+
 export const ServerProviderSlashCommandInput = Schema.Struct({
   hint: TrimmedNonEmptyString,
 });
@@ -90,6 +102,7 @@ export const ServerProvider = Schema.Struct({
   auth: ServerProviderAuth,
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
+  capabilities: Schema.optional(ServerProviderCapabilities),
   models: Schema.Array(ServerProviderModel),
   slashCommands: Schema.Array(ServerProviderSlashCommand).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),

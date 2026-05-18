@@ -1,5 +1,6 @@
 import {
-  HermesReasoningEffort,
+  ClaudeAgentEffort,
+  CodexReasoningEffort,
   DEFAULT_MODEL_BY_PROVIDER,
   type EnvironmentId,
   ModelSelection,
@@ -102,12 +103,12 @@ const PersistedComposerThreadDraftState = Schema.Struct({
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
-const LegacyHermesFields = Schema.Struct({
-  effort: Schema.optionalKey(HermesReasoningEffort),
-  hermesFastMode: Schema.optionalKey(Schema.Boolean),
+const LegacyCodexFields = Schema.Struct({
+  effort: Schema.optionalKey(CodexReasoningEffort),
+  codexFastMode: Schema.optionalKey(Schema.Boolean),
   serviceTier: Schema.optionalKey(Schema.String),
 });
-type LegacyHermesFields = typeof LegacyHermesFields.Type;
+type LegacyCodexFields = typeof LegacyCodexFields.Type;
 
 const LegacyThreadModelFields = Schema.Struct({
   provider: Schema.optionalKey(ProviderKind),
@@ -122,7 +123,7 @@ type LegacyV2ThreadDraftFields = {
 };
 
 type LegacyPersistedComposerThreadDraftState = PersistedComposerThreadDraftState &
-  LegacyHermesFields &
+  LegacyCodexFields &
   LegacyThreadModelFields &
   LegacyV2ThreadDraftFields;
 
@@ -526,77 +527,86 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "hermes" ? value : null;
+  return value === "hermes" || value === "codex" || value === "claudeAgent" ? value : null;
 }
 
 function normalizeProviderModelOptions(
   value: unknown,
   provider?: ProviderKind | null,
-  legacy?: LegacyHermesFields,
+  legacy?: LegacyCodexFields,
 ): ProviderModelOptions | null {
   const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  const hermesCandidate =
-    candidate?.hermes && typeof candidate.hermes === "object"
-      ? (candidate.hermes as Record<string, unknown>)
+  const codexCandidate =
+    candidate?.codex && typeof candidate.codex === "object"
+      ? (candidate.codex as Record<string, unknown>)
+      : null;
+  const claudeCandidate =
+    candidate?.claudeAgent && typeof candidate.claudeAgent === "object"
+      ? (candidate.claudeAgent as Record<string, unknown>)
       : null;
 
-  const hermesReasoningEffort = Schema.is(HermesReasoningEffort)(hermesCandidate?.reasoningEffort)
-    ? hermesCandidate.reasoningEffort
-    : provider === "hermes"
-      ? Schema.is(HermesReasoningEffort)(legacy?.effort)
+  const codexReasoningEffort = Schema.is(CodexReasoningEffort)(codexCandidate?.reasoningEffort)
+    ? codexCandidate.reasoningEffort
+    : provider === "codex"
+      ? Schema.is(CodexReasoningEffort)(legacy?.effort)
         ? legacy.effort
         : undefined
       : undefined;
-  const hermesFastModeFromLegacy =
-    hermesCandidate?.fastMode === true
+  const codexFastMode =
+    codexCandidate?.fastMode === true
       ? true
-      : hermesCandidate?.fastMode === false
+      : codexCandidate?.fastMode === false
         ? false
-        : (provider === "hermes" && legacy?.hermesFastMode === true) ||
+        : (provider === "codex" && legacy?.codexFastMode === true) ||
             (typeof legacy?.serviceTier === "string" && legacy.serviceTier === "fast")
           ? true
           : undefined;
-  const hermesThinking =
-    hermesCandidate?.thinking === true
-      ? true
-      : hermesCandidate?.thinking === false
-        ? false
-        : undefined;
-  const hermesEffort = Schema.is(HermesReasoningEffort)(hermesCandidate?.effort)
-    ? hermesCandidate.effort
-    : undefined;
-  const hermesFastMode =
-    hermesCandidate?.fastMode === true
-      ? true
-      : hermesCandidate?.fastMode === false
-        ? false
-        : hermesFastModeFromLegacy;
-  const hermesContextWindow =
-    typeof hermesCandidate?.contextWindow === "string" && hermesCandidate.contextWindow.length > 0
-      ? hermesCandidate.contextWindow
-      : undefined;
-  const hermes =
-    hermesThinking !== undefined ||
-    hermesEffort !== undefined ||
-    hermesReasoningEffort !== undefined ||
-    hermesFastMode !== undefined ||
-    hermesContextWindow !== undefined
+  const codex =
+    codexReasoningEffort !== undefined || codexFastMode !== undefined
       ? {
-          ...(hermesThinking !== undefined ? { thinking: hermesThinking } : {}),
-          ...(hermesEffort !== undefined ? { effort: hermesEffort } : {}),
-          ...(hermesReasoningEffort !== undefined
-            ? { reasoningEffort: hermesReasoningEffort }
-            : {}),
-          ...(hermesFastMode !== undefined ? { fastMode: hermesFastMode } : {}),
-          ...(hermesContextWindow !== undefined ? { contextWindow: hermesContextWindow } : {}),
+          ...(codexReasoningEffort !== undefined ? { reasoningEffort: codexReasoningEffort } : {}),
+          ...(codexFastMode !== undefined ? { fastMode: codexFastMode } : {}),
         }
       : undefined;
 
-  if (!hermes) {
+  const claudeThinking =
+    claudeCandidate?.thinking === true
+      ? true
+      : claudeCandidate?.thinking === false
+        ? false
+        : undefined;
+  const claudeEffort = Schema.is(ClaudeAgentEffort)(claudeCandidate?.effort)
+    ? claudeCandidate.effort
+    : undefined;
+  const claudeFastMode =
+    claudeCandidate?.fastMode === true
+      ? true
+      : claudeCandidate?.fastMode === false
+        ? false
+        : undefined;
+  const claudeContextWindow =
+    typeof claudeCandidate?.contextWindow === "string" && claudeCandidate.contextWindow.length > 0
+      ? claudeCandidate.contextWindow
+      : undefined;
+  const claude =
+    claudeThinking !== undefined ||
+    claudeEffort !== undefined ||
+    claudeFastMode !== undefined ||
+    claudeContextWindow !== undefined
+      ? {
+          ...(claudeThinking !== undefined ? { thinking: claudeThinking } : {}),
+          ...(claudeEffort !== undefined ? { effort: claudeEffort } : {}),
+          ...(claudeFastMode !== undefined ? { fastMode: claudeFastMode } : {}),
+          ...(claudeContextWindow !== undefined ? { contextWindow: claudeContextWindow } : {}),
+        }
+      : undefined;
+
+  if (!codex && !claude) {
     return null;
   }
   return {
-    hermes,
+    ...(codex ? { codex } : {}),
+    ...(claude ? { claudeAgent: claude } : {}),
   };
 }
 
@@ -606,7 +616,7 @@ function normalizeModelSelection(
     provider?: unknown;
     model?: unknown;
     modelOptions?: unknown;
-    legacyHermes?: LegacyHermesFields;
+    legacyCodex?: LegacyCodexFields;
   },
 ): ModelSelection | null {
   const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -625,9 +635,14 @@ function normalizeModelSelection(
   const modelOptions = normalizeProviderModelOptions(
     candidate?.options ? { [provider]: candidate.options } : legacy?.modelOptions,
     provider,
-    provider === "hermes" ? legacy?.legacyHermes : undefined,
+    provider === "codex" ? legacy?.legacyCodex : undefined,
   );
-  const options = provider === "hermes" ? modelOptions?.hermes : modelOptions?.hermes;
+  const options =
+    provider === "codex"
+      ? modelOptions?.codex
+      : provider === "claudeAgent"
+        ? modelOptions?.claudeAgent
+        : modelOptions?.hermes;
   return {
     provider,
     model,
@@ -693,7 +708,7 @@ function legacyToModelSelectionByProvider(
   const result: Partial<Record<ProviderKind, ModelSelection>> = {};
   // Add entries from the options bag (for non-active providers)
   if (modelOptions) {
-    for (const provider of ["hermes", "hermes"] as const) {
+    for (const provider of ["codex", "claudeAgent"] as const) {
       const options = modelOptions[provider];
       if (options && Object.keys(options).length > 0) {
         result[provider] = {
@@ -1344,7 +1359,7 @@ function normalizePersistedDraftsByThreadId(
           provider: legacyDraftCandidate.provider,
           model: legacyDraftCandidate.model,
           modelOptions: normalizedModelOptions ?? legacyDraftCandidate.modelOptions,
-          legacyHermes: legacyDraftCandidate,
+          legacyCodex: legacyDraftCandidate,
         },
       );
       const mergedModelOptions = legacyMergeModelSelectionIntoProviderModelOptions(
@@ -1434,7 +1449,8 @@ function migratePersistedComposerDraftStoreState(
     stickyModelSelection,
     nextStickyModelOptions,
   );
-  const stickyActiveProvider = normalizeProviderKind(candidate.stickyProvider) ?? null;
+  const stickyActiveProvider =
+    normalizeProviderKind(candidate.stickyProvider) ?? stickyModelSelection?.provider ?? null;
 
   const { draftThreadsByThreadKey, logicalProjectDraftThreadKeyByLogicalProjectKey } =
     normalizePersistedDraftThreads(rawDraftThreadsByThreadId, rawProjectDraftThreadIdByProjectKey);
@@ -1546,7 +1562,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
     const normalizedStickyModelSelection = normalizeModelSelection(
       normalizedPersistedState.stickyModelSelection,
       {
-        provider: normalizedPersistedState.stickyProvider,
+        provider: normalizedPersistedState.stickyProvider ?? "hermes",
         model: normalizedPersistedState.stickyModel,
         modelOptions: stickyModelOptions,
       },
@@ -1563,7 +1579,10 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       stickyModelSelection,
       nextStickyModelOptions,
     );
-    stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyProvider);
+    stickyActiveProvider =
+      normalizeProviderKind(normalizedPersistedState.stickyProvider) ??
+      stickyModelSelection?.provider ??
+      null;
   }
 
   return {
@@ -2236,7 +2255,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             }
             const base = existing ?? createEmptyThreadDraft();
             const nextMap = { ...base.modelSelectionByProvider };
-            for (const provider of ["hermes", "hermes"] as const) {
+            for (const provider of ["codex", "claudeAgent"] as const) {
               // Only touch providers explicitly present in the input
               if (!normalizedOpts || !(provider in normalizedOpts)) continue;
               const opts = normalizedOpts[provider];

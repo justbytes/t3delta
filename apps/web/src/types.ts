@@ -95,7 +95,7 @@ export interface Project {
 export interface Thread {
   id: ThreadId;
   environmentId: EnvironmentId;
-  hermesThreadId: string | null;
+  codexThreadId: string | null;
   projectId: ProjectId;
   title: string;
   modelSelection: ModelSelection;
@@ -119,7 +119,7 @@ export interface Thread {
 export interface ThreadShell {
   id: ThreadId;
   environmentId: EnvironmentId;
-  hermesThreadId: string | null;
+  codexThreadId: string | null;
   projectId: ProjectId;
   title: string;
   modelSelection: ModelSelection;

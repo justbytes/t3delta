@@ -8,7 +8,7 @@ const decodeServerProvider = Schema.decodeUnknownSync(ServerProvider);
 describe("ServerProvider", () => {
   it("defaults capability arrays when decoding legacy snapshots", () => {
     const parsed = decodeServerProvider({
-      provider: "hermes",
+      provider: "codex",
       enabled: true,
       installed: true,
       version: "1.0.0",

@@ -28,8 +28,8 @@ const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
 
 const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
-    slug: "hermes-opus-4-6",
-    name: "Hermes Opus 4.6",
+    slug: "claude-opus-4-6",
+    name: "Claude Opus 4.6",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [
@@ -45,8 +45,8 @@ const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
     },
   },
   {
-    slug: "hermes-sonnet-4-6",
-    name: "Hermes Sonnet 4.6",
+    slug: "claude-sonnet-4-6",
+    name: "Claude Sonnet 4.6",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [
@@ -62,8 +62,8 @@ const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
     },
   },
   {
-    slug: "hermes-haiku-4-5",
-    name: "Hermes Haiku 4.5",
+    slug: "claude-haiku-4-5",
+    name: "Claude Haiku 4.5",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [],
@@ -77,8 +77,8 @@ const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
 
 const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
   {
-    slug: "hermes-opus-4-6",
-    name: "Hermes Opus 4.6",
+    slug: "claude-opus-4-6",
+    name: "Claude Opus 4.6",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [
@@ -97,8 +97,8 @@ const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
     },
   },
   {
-    slug: "hermes-haiku-4-5",
-    name: "Hermes Haiku 4.5",
+    slug: "claude-haiku-4-5",
+    name: "Claude Haiku 4.5",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [],
@@ -111,9 +111,9 @@ const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
 ];
 
 describe("getComposerProviderState", () => {
-  it("returns hermes defaults when no hermes draft options exist", () => {
+  it("returns codex defaults when no codex draft options exist", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
       prompt: "",
@@ -121,20 +121,22 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "codex",
       promptEffort: "high",
-      modelOptionsForDispatch: undefined,
+      modelOptionsForDispatch: {
+        reasoningEffort: "high",
+      },
     });
   });
 
-  it("normalizes hermes dispatch options while preserving the selected effort", () => {
+  it("normalizes codex dispatch options while preserving the selected effort", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        codex: {
           reasoningEffort: "low",
           fastMode: true,
         },
@@ -142,7 +144,7 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "codex",
       promptEffort: "low",
       modelOptionsForDispatch: {
         reasoningEffort: "low",
@@ -151,36 +153,37 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("preserves hermes fast mode when it is the only active option", () => {
+  it("preserves codex fast mode when it is the only active option", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        codex: {
           fastMode: true,
         },
       },
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "codex",
       promptEffort: "high",
       modelOptionsForDispatch: {
+        reasoningEffort: "high",
         fastMode: true,
       },
     });
   });
 
-  it("preserves hermes default effort explicitly in dispatch options", () => {
+  it("preserves codex default effort explicitly in dispatch options", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        codex: {
           reasoningEffort: "high",
           fastMode: false,
         },
@@ -188,7 +191,7 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "codex",
       promptEffort: "high",
       modelOptionsForDispatch: {
         reasoningEffort: "high",
@@ -197,37 +200,39 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("returns Hermes defaults for effort-capable models", () => {
+  it("returns Claude defaults for effort-capable models", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-sonnet-4-6",
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: undefined,
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "claudeAgent",
       promptEffort: "high",
-      modelOptionsForDispatch: undefined,
+      modelOptionsForDispatch: {
+        effort: "high",
+      },
     });
   });
 
-  it("tracks Hermes ultrathink from the prompt without changing dispatch effort", () => {
+  it("tracks Claude ultrathink from the prompt without changing dispatch effort", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-sonnet-4-6",
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
       prompt: "Ultrathink:\nInvestigate this failure",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           effort: "medium",
         },
       },
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "claudeAgent",
       promptEffort: "medium",
       modelOptionsForDispatch: {
         effort: "medium",
@@ -238,14 +243,14 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("drops unsupported Hermes effort options for models without effort controls", () => {
+  it("drops unsupported Claude effort options for models without effort controls", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-haiku-4-5",
+      provider: "claudeAgent",
+      model: "claude-haiku-4-5",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           effort: "max",
           thinking: false,
         },
@@ -253,7 +258,7 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "claudeAgent",
       promptEffort: null,
       modelOptionsForDispatch: {
         thinking: false,
@@ -261,36 +266,37 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("preserves Hermes fast mode when it is the only active option", () => {
+  it("preserves Claude fast mode when it is the only active option", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           fastMode: true,
         },
       },
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "claudeAgent",
       promptEffort: "high",
       modelOptionsForDispatch: {
+        effort: "high",
         fastMode: true,
       },
     });
   });
 
-  it("preserves Hermes default effort explicitly in dispatch options", () => {
+  it("preserves Claude default effort explicitly in dispatch options", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           effort: "high",
           fastMode: false,
         },
@@ -298,7 +304,7 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state).toEqual({
-      provider: "hermes",
+      provider: "claudeAgent",
       promptEffort: "high",
       modelOptionsForDispatch: {
         effort: "high",
@@ -308,15 +314,15 @@ describe("getComposerProviderState", () => {
   });
 
   it("preserves explicit fastMode: false so deepMerge can overwrite a prior true", () => {
-    // Regression: normalizeHermesModelOptionsWithCapabilities used to strip
+    // Regression: normalizeClaudeModelOptionsWithCapabilities used to strip
     // fastMode: false, which meant deepMerge could never clear a previous true.
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           effort: "high",
           fastMode: false,
         },
@@ -330,12 +336,12 @@ describe("getComposerProviderState", () => {
     // Regression: thinking: true (the default) used to be stripped, which
     // meant deepMerge could never clear a previous thinking: false.
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-haiku-4-5",
+      provider: "claudeAgent",
+      model: "claude-haiku-4-5",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           thinking: true,
         },
       },
@@ -344,14 +350,14 @@ describe("getComposerProviderState", () => {
     expect(state.modelOptionsForDispatch).toHaveProperty("thinking", true);
   });
 
-  it("preserves Hermes default context window explicitly in dispatch options", () => {
+  it("preserves Claude default context window explicitly in dispatch options", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       models: CLAUDE_MODELS_WITH_CONTEXT_WINDOW,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           effort: "high",
           contextWindow: "200k",
         },
@@ -368,12 +374,12 @@ describe("getComposerProviderState", () => {
     // Regression: the default contextWindow must survive normalization so
     // deepMerge can clear an older non-default 1m selection.
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       models: CLAUDE_MODELS_WITH_CONTEXT_WINDOW,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           contextWindow: "200k",
         },
       },
@@ -384,12 +390,12 @@ describe("getComposerProviderState", () => {
 
   it("omits contextWindow when the model does not support it", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-haiku-4-5",
+      provider: "claudeAgent",
+      model: "claude-haiku-4-5",
       models: CLAUDE_MODELS_WITH_CONTEXT_WINDOW,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           contextWindow: "1m",
         },
       },
@@ -400,12 +406,12 @@ describe("getComposerProviderState", () => {
 
   it("omits fastMode when the model does not support it", () => {
     const state = getComposerProviderState({
-      provider: "hermes",
-      model: "hermes-sonnet-4-6",
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
       prompt: "",
       modelOptions: {
-        hermes: {
+        claudeAgent: {
           effort: "high",
           fastMode: true,
         },
@@ -417,9 +423,9 @@ describe("getComposerProviderState", () => {
 });
 
 describe("provider traits render guards", () => {
-  it("returns null for hermes traits picker when no thread target is provided", () => {
+  it("returns null for codex traits picker when no thread target is provided", () => {
     const content = renderProviderTraitsPicker({
-      provider: "hermes",
+      provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
       modelOptions: undefined,
@@ -430,10 +436,10 @@ describe("provider traits render guards", () => {
     expect(content).toBeNull();
   });
 
-  it("returns null for hermes traits menu content when no thread target is provided", () => {
+  it("returns null for claude traits menu content when no thread target is provided", () => {
     const content = renderProviderTraitsMenuContent({
-      provider: "hermes",
-      model: "hermes-sonnet-4-6",
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
       modelOptions: undefined,
       prompt: "",

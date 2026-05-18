@@ -20,6 +20,31 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     provider: "hermes",
     enabled: true,
     installed: true,
+    version: "1.0.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: new Date().toISOString(),
+    slashCommands: [],
+    skills: [],
+    models: [
+      {
+        slug: "gpt-5.5",
+        name: "GPT-5.5",
+        isCustom: false,
+        capabilities: {
+          reasoningEffortLevels: [],
+          supportsFastMode: false,
+          supportsThinkingToggle: false,
+          contextWindowOptions: [],
+          promptInjectedEffortLevels: [],
+        },
+      },
+    ],
+  },
+  {
+    provider: "codex",
+    enabled: true,
+    installed: true,
     version: "0.116.0",
     status: "ready",
     auth: { status: "authenticated" },
@@ -28,8 +53,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     skills: [],
     models: [
       {
-        slug: "gpt-5-hermes",
-        name: "GPT-5 Hermes",
+        slug: "gpt-5-codex",
+        name: "GPT-5 Codex",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
@@ -40,8 +65,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
       {
-        slug: "gpt-5.3-hermes",
-        name: "GPT-5.3 Hermes",
+        slug: "gpt-5.3-codex",
+        name: "GPT-5.3 Codex",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
@@ -54,7 +79,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     ],
   },
   {
-    provider: "hermes",
+    provider: "claudeAgent",
     enabled: true,
     installed: true,
     version: "1.0.0",
@@ -65,8 +90,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     skills: [],
     models: [
       {
-        slug: "hermes-opus-4-6",
-        name: "Hermes Opus 4.6",
+        slug: "claude-opus-4-6",
+        name: "Claude Opus 4.6",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [
@@ -82,8 +107,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
       {
-        slug: "hermes-sonnet-4-6",
-        name: "Hermes Sonnet 4.6",
+        slug: "claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [
@@ -99,8 +124,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
       {
-        slug: "hermes-haiku-4-5",
-        name: "Hermes Haiku 4.5",
+        slug: "claude-haiku-4-5",
+        name: "Claude Haiku 4.5",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
@@ -114,9 +139,9 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   },
 ];
 
-function buildHermesProvider(models: ServerProvider["models"]): ServerProvider {
+function buildCodexProvider(models: ServerProvider["models"]): ServerProvider {
   return {
-    provider: "hermes",
+    provider: "codex",
     enabled: true,
     installed: true,
     version: "0.116.0",
@@ -175,8 +200,8 @@ describe("ProviderModelPicker", () => {
 
   it("shows provider submenus when provider switching is allowed", async () => {
     const mounted = await mountPicker({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       lockedProvider: null,
     });
 
@@ -185,9 +210,9 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
+        expect(text).toContain("Codex");
         expect(text).toContain("Hermes");
-        expect(text).toContain("Hermes");
-        expect(text).not.toContain("Hermes Sonnet 4.6");
+        expect(text).not.toContain("Claude Sonnet 4.6");
       });
     } finally {
       await mounted.cleanup();
@@ -196,31 +221,31 @@ describe("ProviderModelPicker", () => {
 
   it("opens provider submenus with a visible gap from the parent menu", async () => {
     const mounted = await mountPicker({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       lockedProvider: null,
     });
 
     try {
       await page.getByRole("button").click();
-      const providerTrigger = page.getByRole("menuitem", { name: "Hermes" });
+      const providerTrigger = page.getByRole("menuitem", { name: "Codex CLI" });
       await providerTrigger.hover();
 
       await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("GPT-5 Hermes");
+        expect(document.body.textContent ?? "").toContain("GPT-5 Codex");
       });
 
       const providerTriggerElement = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find((element) => element.textContent?.includes("Hermes"));
+      ).find((element) => element.textContent?.includes("Codex"));
       if (!providerTriggerElement) {
-        throw new Error("Expected the Hermes provider trigger to be mounted.");
+        throw new Error("Expected the Codex provider trigger to be mounted.");
       }
 
       const providerTriggerRect = providerTriggerElement.getBoundingClientRect();
       const modelElement = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-      ).find((element) => element.textContent?.includes("GPT-5 Hermes"));
+      ).find((element) => element.textContent?.includes("GPT-5 Codex"));
       if (!modelElement) {
         throw new Error("Expected the submenu model option to be mounted.");
       }
@@ -239,11 +264,45 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("shows models directly when the provider is locked mid-thread", async () => {
+  it("selects Hermes directly from the provider row", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("menuitem", { name: "Hermes" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("hermes", "gpt-5.5");
+      expect(document.body.textContent ?? "").not.toContain("GPT-5.5");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the Hermes logo in the trigger", async () => {
     const mounted = await mountPicker({
       provider: "hermes",
-      model: "hermes-opus-4-6",
-      lockedProvider: "hermes",
+      model: "gpt-5.5",
+      lockedProvider: null,
+    });
+
+    try {
+      expect(document.body.textContent ?? "").toContain("Hermes");
+      expect(document.body.textContent ?? "").not.toContain("Hermes · GPT-5.5");
+      expect(document.querySelector<HTMLImageElement>('img[src*="hermes-logo"]')).not.toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows models directly when the provider is locked mid-thread", async () => {
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: "claudeAgent",
     });
 
     try {
@@ -251,21 +310,21 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Hermes Sonnet 4.6");
-        expect(text).toContain("Hermes Haiku 4.5");
-        expect(text).not.toContain("Hermes");
+        expect(text).toContain("Claude Sonnet 4.6");
+        expect(text).toContain("Claude Haiku 4.5");
+        expect(text).not.toContain("Codex");
       });
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("only shows hermes spark when the server reports it for the account", async () => {
+  it("only shows codex spark when the server reports it for the account", async () => {
     const providersWithoutSpark: ReadonlyArray<ServerProvider> = [
-      buildHermesProvider([
+      buildCodexProvider([
         {
-          slug: "gpt-5.3-hermes",
-          name: "GPT-5.3 Hermes",
+          slug: "gpt-5.3-codex",
+          name: "GPT-5.3 Codex",
           isCustom: false,
           capabilities: {
             reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
@@ -276,13 +335,13 @@ describe("ProviderModelPicker", () => {
           },
         },
       ]),
-      TEST_PROVIDERS[1]!,
+      TEST_PROVIDERS[2]!,
     ];
     const providersWithSpark: ReadonlyArray<ServerProvider> = [
-      buildHermesProvider([
+      buildCodexProvider([
         {
-          slug: "gpt-5.3-hermes",
-          name: "GPT-5.3 Hermes",
+          slug: "gpt-5.3-codex",
+          name: "GPT-5.3 Codex",
           isCustom: false,
           capabilities: {
             reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
@@ -293,8 +352,8 @@ describe("ProviderModelPicker", () => {
           },
         },
         {
-          slug: "gpt-5.3-hermes-spark",
-          name: "GPT-5.3 Hermes Spark",
+          slug: "gpt-5.3-codex-spark",
+          name: "GPT-5.3 Codex Spark",
           isCustom: false,
           capabilities: {
             reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
@@ -305,42 +364,42 @@ describe("ProviderModelPicker", () => {
           },
         },
       ]),
-      TEST_PROVIDERS[1]!,
+      TEST_PROVIDERS[2]!,
     ];
 
     const hidden = await mountPicker({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       lockedProvider: null,
       providers: providersWithoutSpark,
     });
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Hermes" }).hover();
+      await page.getByRole("menuitem", { name: "Codex" }).hover();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("GPT-5.3 Hermes");
-        expect(text).not.toContain("GPT-5.3 Hermes Spark");
+        expect(text).toContain("GPT-5.3 Codex");
+        expect(text).not.toContain("GPT-5.3 Codex Spark");
       });
     } finally {
       await hidden.cleanup();
     }
 
     const visible = await mountPicker({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
       lockedProvider: null,
       providers: providersWithSpark,
     });
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Hermes" }).hover();
+      await page.getByRole("menuitem", { name: "Codex" }).hover();
 
       await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("GPT-5.3 Hermes Spark");
+        expect(document.body.textContent ?? "").toContain("GPT-5.3 Codex Spark");
       });
     } finally {
       await visible.cleanup();
@@ -349,16 +408,19 @@ describe("ProviderModelPicker", () => {
 
   it("dispatches the canonical slug when a model is selected", async () => {
     const mounted = await mountPicker({
-      provider: "hermes",
-      model: "hermes-opus-4-6",
-      lockedProvider: "hermes",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: "claudeAgent",
     });
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitemradio", { name: "Hermes Sonnet 4.6" }).click();
+      await page.getByRole("menuitemradio", { name: "Claude Sonnet 4.6" }).click();
 
-      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("hermes", "hermes-sonnet-4-6");
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "claudeAgent",
+        "claude-sonnet-4-6",
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -366,18 +428,20 @@ describe("ProviderModelPicker", () => {
 
   it("shows disabled providers as non-selectable entries", async () => {
     const disabledProviders = TEST_PROVIDERS.slice();
-    const hermesIndex = disabledProviders.findIndex((provider) => provider.provider === "hermes");
-    if (hermesIndex >= 0) {
-      const hermesProvider = disabledProviders[hermesIndex]!;
-      disabledProviders[hermesIndex] = {
-        ...hermesProvider,
+    const claudeIndex = disabledProviders.findIndex(
+      (provider) => provider.provider === "claudeAgent",
+    );
+    if (claudeIndex >= 0) {
+      const claudeProvider = disabledProviders[claudeIndex]!;
+      disabledProviders[claudeIndex] = {
+        ...claudeProvider,
         enabled: false,
         status: "disabled",
       };
     }
     const mounted = await mountPicker({
-      provider: "hermes",
-      model: "gpt-5-hermes",
+      provider: "codex",
+      model: "gpt-5-codex",
       lockedProvider: null,
       providers: disabledProviders,
     });
@@ -387,9 +451,9 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Hermes");
+        expect(text).toContain("Claude");
         expect(text).toContain("Disabled");
-        expect(text).not.toContain("Hermes Sonnet 4.6");
+        expect(text).not.toContain("Claude Sonnet 4.6");
       });
     } finally {
       await mounted.cleanup();
@@ -398,8 +462,8 @@ describe("ProviderModelPicker", () => {
 
   it("accepts outline trigger styling", async () => {
     const mounted = await mountPicker({
-      provider: "hermes",
-      model: "gpt-5-hermes",
+      provider: "codex",
+      model: "gpt-5-codex",
       lockedProvider: null,
       triggerVariant: "outline",
     });

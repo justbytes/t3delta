@@ -1426,6 +1426,8 @@ function startBackend(): void {
     env: {
       ...backendChildEnv(),
       ELECTRON_RUN_AS_NODE: "1",
+      T3CODE_HOST: backendBindHost,
+      T3CODE_PORT: String(backendPort),
     },
     stdio: captureBackendLogs
       ? ["ignore", "pipe", "pipe", "pipe"]

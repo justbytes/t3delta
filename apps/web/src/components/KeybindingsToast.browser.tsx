@@ -72,7 +72,7 @@ function createBaseServerConfig(): ServerConfig {
     issues: [],
     providers: [
       {
-        provider: "hermes",
+        provider: "codex",
         enabled: true,
         installed: true,
         version: "0.116.0",
@@ -95,9 +95,11 @@ function createBaseServerConfig(): ServerConfig {
       ...DEFAULT_SERVER_SETTINGS,
       enableAssistantStreaming: false,
       defaultThreadEnvMode: "local" as const,
-      textGenerationModelSelection: { provider: "hermes" as const, model: "gpt-5.4-mini" },
+      textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
       providers: {
-        hermes: { enabled: true, binaryPath: "", homePath: "", customModels: [], launchArgs: "" },
+        hermes: { enabled: true, customModels: [] },
+        codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
+        claudeAgent: { enabled: true, binaryPath: "", customModels: [], launchArgs: "" },
       },
     },
   };
@@ -112,7 +114,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
-          provider: "hermes",
+          provider: "codex",
           model: "gpt-5",
         },
         scripts: [],
@@ -127,7 +129,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         projectId: PROJECT_ID,
         title: "Test thread",
         modelSelection: {
-          provider: "hermes",
+          provider: "codex",
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -156,7 +158,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         session: {
           threadId: THREAD_ID,
           status: "ready",
-          providerName: "hermes",
+          providerName: "codex",
           runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,

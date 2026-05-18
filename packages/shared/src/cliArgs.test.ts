@@ -44,8 +44,8 @@ describe("parseCliArgs", () => {
   });
 
   it("parses --model with full model name", () => {
-    expect(parseCliArgs("--model hermes-sonnet-4-6")).toEqual({
-      flags: { model: "hermes-sonnet-4-6" },
+    expect(parseCliArgs("--model claude-sonnet-4-6")).toEqual({
+      flags: { model: "claude-sonnet-4-6" },
       positionals: [],
     });
   });
@@ -72,8 +72,8 @@ describe("parseCliArgs", () => {
   });
 
   it("parses --key=value mixed with boolean flags", () => {
-    expect(parseCliArgs("--chrome --model=hermes-sonnet-4-6 --debug")).toEqual({
-      flags: { chrome: null, model: "hermes-sonnet-4-6", debug: null },
+    expect(parseCliArgs("--chrome --model=claude-sonnet-4-6 --debug")).toEqual({
+      flags: { chrome: null, model: "claude-sonnet-4-6", debug: null },
       positionals: [],
     });
   });

@@ -2,7 +2,8 @@ import "../../index.css";
 
 import {
   type ModelSelection,
-  HermesModelOptions,
+  ClaudeModelOptions,
+  CodexModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
@@ -25,18 +26,18 @@ import {
 } from "../../composerDraftStore";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3delta/contracts/settings";
 
-// ── Hermes TraitsPicker tests ─────────────────────────────────────────
+// ── Claude TraitsPicker tests ─────────────────────────────────────────
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
-const CLAUDE_THREAD_ID = ThreadId.make("thread-hermes-traits");
+const CLAUDE_THREAD_ID = ThreadId.make("thread-claude-traits");
 const CLAUDE_THREAD_REF = scopeThreadRef(LOCAL_ENVIRONMENT_ID, CLAUDE_THREAD_ID);
 const CLAUDE_THREAD_KEY = scopedThreadKey(CLAUDE_THREAD_REF);
-const CODEX_THREAD_ID = ThreadId.make("thread-hermes-traits");
+const CODEX_THREAD_ID = ThreadId.make("thread-codex-traits");
 const CODEX_THREAD_REF = scopeThreadRef(LOCAL_ENVIRONMENT_ID, CODEX_THREAD_ID);
 const CODEX_THREAD_KEY = scopedThreadKey(CODEX_THREAD_REF);
 const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   {
-    provider: "hermes",
+    provider: "codex",
     enabled: true,
     installed: true,
     version: "0.1.0",
@@ -64,7 +65,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     ],
   },
   {
-    provider: "hermes",
+    provider: "claudeAgent",
     enabled: true,
     installed: true,
     version: "0.1.0",
@@ -75,8 +76,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     skills: [],
     models: [
       {
-        slug: "hermes-opus-4-6",
-        name: "Hermes Opus 4.6",
+        slug: "claude-opus-4-6",
+        name: "Claude Opus 4.6",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [
@@ -93,8 +94,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
       {
-        slug: "hermes-sonnet-4-6",
-        name: "Hermes Sonnet 4.6",
+        slug: "claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [
@@ -110,8 +111,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
       {
-        slug: "hermes-haiku-4-5",
-        name: "Hermes Haiku 4.5",
+        slug: "claude-haiku-4-5",
+        name: "Claude Haiku 4.5",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [],
@@ -125,7 +126,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   },
 ];
 
-function HermesTraitsPickerHarness(props: {
+function ClaudeTraitsPickerHarness(props: {
   model: string;
   fallbackModelSelection: ModelSelection | null;
   triggerVariant?: "ghost" | "outline";
@@ -135,7 +136,7 @@ function HermesTraitsPickerHarness(props: {
   const { modelOptions, selectedModel } = useEffectiveComposerModelState({
     threadRef: CLAUDE_THREAD_REF,
     providers: TEST_PROVIDERS,
-    selectedProvider: "hermes",
+    selectedProvider: "claudeAgent",
     threadModelSelection: props.fallbackModelSelection,
     projectModelSelection: null,
     settings: {
@@ -152,22 +153,22 @@ function HermesTraitsPickerHarness(props: {
 
   return (
     <TraitsPicker
-      provider="hermes"
+      provider="claudeAgent"
       models={TEST_PROVIDERS[1]!.models}
       threadRef={CLAUDE_THREAD_REF}
       model={selectedModel ?? props.model}
       prompt={prompt}
-      modelOptions={modelOptions?.hermes}
+      modelOptions={modelOptions?.claudeAgent}
       onPromptChange={handlePromptChange}
       triggerVariant={props.triggerVariant}
     />
   );
 }
 
-async function mountHermesPicker(props?: {
+async function mountClaudePicker(props?: {
   model?: string;
   prompt?: string;
-  options?: HermesModelOptions;
+  options?: ClaudeModelOptions;
   fallbackModelOptions?: {
     effort?: "low" | "medium" | "high" | "max" | "ultrathink";
     thinking?: boolean;
@@ -176,8 +177,8 @@ async function mountHermesPicker(props?: {
   skipDraftModelOptions?: boolean;
   triggerVariant?: "ghost" | "outline";
 }) {
-  const model = props?.model ?? "hermes-opus-4-6";
-  const hermesOptions = !props?.skipDraftModelOptions ? props?.options : undefined;
+  const model = props?.model ?? "claude-opus-4-6";
+  const claudeOptions = !props?.skipDraftModelOptions ? props?.options : undefined;
   const draftsByThreadKey: Record<string, ComposerThreadDraftState> = {
     [CLAUDE_THREAD_KEY]: {
       prompt: props?.prompt ?? "",
@@ -188,15 +189,15 @@ async function mountHermesPicker(props?: {
       modelSelectionByProvider: props?.skipDraftModelOptions
         ? {}
         : {
-            hermes: {
-              provider: "hermes",
+            claudeAgent: {
+              provider: "claudeAgent",
               model,
-              ...(hermesOptions && Object.keys(hermesOptions).length > 0
-                ? { options: hermesOptions }
+              ...(claudeOptions && Object.keys(claudeOptions).length > 0
+                ? { options: claudeOptions }
                 : {}),
             },
           },
-      activeProvider: "hermes",
+      activeProvider: "claudeAgent",
       runtimeMode: null,
       interactionMode: null,
     },
@@ -211,13 +212,13 @@ async function mountHermesPicker(props?: {
   const fallbackModelSelection =
     props?.fallbackModelOptions !== undefined
       ? ({
-          provider: "hermes",
+          provider: "claudeAgent",
           model,
           ...(props.fallbackModelOptions ? { options: props.fallbackModelOptions } : {}),
         } satisfies ModelSelection)
       : null;
   const screen = await render(
-    <HermesTraitsPickerHarness
+    <ClaudeTraitsPickerHarness
       model={model}
       fallbackModelSelection={fallbackModelSelection}
       {...(props?.triggerVariant ? { triggerVariant: props.triggerVariant } : {})}
@@ -236,7 +237,7 @@ async function mountHermesPicker(props?: {
   };
 }
 
-describe("TraitsPicker (Hermes)", () => {
+describe("TraitsPicker (Claude)", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     useComposerDraftStore.setState({
@@ -248,7 +249,7 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows fast mode controls for Opus", async () => {
-    await using _ = await mountHermesPicker();
+    await using _ = await mountClaudePicker();
 
     await page.getByRole("button").click();
 
@@ -261,7 +262,7 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("hides fast mode controls for non-Opus models", async () => {
-    await using _ = await mountHermesPicker({ model: "hermes-sonnet-4-6" });
+    await using _ = await mountClaudePicker({ model: "claude-sonnet-4-6" });
 
     await page.getByRole("button").click();
 
@@ -271,8 +272,8 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows only the provided effort options", async () => {
-    await using _ = await mountHermesPicker({
-      model: "hermes-sonnet-4-6",
+    await using _ = await mountClaudePicker({
+      model: "claude-sonnet-4-6",
     });
 
     await page.getByRole("button").click();
@@ -288,8 +289,8 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows a th  inking on/off dropdown for Haiku", async () => {
-    await using _ = await mountHermesPicker({
-      model: "hermes-haiku-4-5",
+    await using _ = await mountClaudePicker({
+      model: "claude-haiku-4-5",
       options: { thinking: true },
     });
 
@@ -307,8 +308,8 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows prompt-controlled Ultrathink state with selectable effort controls", async () => {
-    await using _ = await mountHermesPicker({
-      model: "hermes-opus-4-6",
+    await using _ = await mountClaudePicker({
+      model: "claude-opus-4-6",
       options: { effort: "high" },
       prompt: "Ultrathink:\nInvestigate this",
     });
@@ -327,8 +328,8 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("warns when ultrathink appears in prompt body text", async () => {
-    await using _ = await mountHermesPicker({
-      model: "hermes-opus-4-6",
+    await using _ = await mountClaudePicker({
+      model: "claude-opus-4-6",
       options: { effort: "high" },
       prompt: "Ultrathink:\nplease ultrathink about this problem",
     });
@@ -343,17 +344,19 @@ describe("TraitsPicker (Hermes)", () => {
     });
   });
 
-  it("persists sticky hermes model options when traits change", async () => {
-    await using _ = await mountHermesPicker({
-      model: "hermes-opus-4-6",
+  it("persists sticky claude model options when traits change", async () => {
+    await using _ = await mountClaudePicker({
+      model: "claude-opus-4-6",
       options: { effort: "medium", fastMode: false },
     });
 
     await page.getByRole("button").click();
     await page.getByRole("menuitemradio", { name: "Max" }).click();
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toMatchObject({
-      provider: "hermes",
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent,
+    ).toMatchObject({
+      provider: "claudeAgent",
       options: {
         effort: "max",
       },
@@ -361,7 +364,7 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("accepts outline trigger styling", async () => {
-    await using _ = await mountHermesPicker({
+    await using _ = await mountClaudePicker({
       triggerVariant: "outline",
     });
 
@@ -374,10 +377,10 @@ describe("TraitsPicker (Hermes)", () => {
   });
 });
 
-// ── Hermes TraitsPicker tests ──────────────────────────────────────────
+// ── Codex TraitsPicker tests ──────────────────────────────────────────
 
-async function mountHermesBasicPicker(props: { model?: string; options?: HermesModelOptions }) {
-  const model = props.model ?? DEFAULT_MODEL_BY_PROVIDER.hermes;
+async function mountCodexPicker(props: { model?: string; options?: CodexModelOptions }) {
+  const model = props.model ?? DEFAULT_MODEL_BY_PROVIDER.codex;
   const draftsByThreadKey: Record<string, ComposerThreadDraftState> = {
     [CODEX_THREAD_KEY]: {
       prompt: "",
@@ -386,13 +389,13 @@ async function mountHermesBasicPicker(props: { model?: string; options?: HermesM
       persistedAttachments: [],
       terminalContexts: [],
       modelSelectionByProvider: {
-        hermes: {
-          provider: "hermes",
+        codex: {
+          provider: "codex",
           model,
           ...(props.options ? { options: props.options } : {}),
         },
       },
-      activeProvider: "hermes",
+      activeProvider: "codex",
       runtimeMode: null,
       interactionMode: null,
     },
@@ -402,17 +405,17 @@ async function mountHermesBasicPicker(props: { model?: string; options?: HermesM
     draftsByThreadKey,
     draftThreadsByThreadKey: {},
     logicalProjectDraftThreadKeyByLogicalProjectKey: {
-      "environment-local:project-hermes-traits": CODEX_THREAD_KEY,
+      "environment-local:project-codex-traits": CODEX_THREAD_KEY,
     },
   });
   const host = document.createElement("div");
   document.body.append(host);
   const screen = await render(
     <TraitsPicker
-      provider="hermes"
+      provider="codex"
       models={TEST_PROVIDERS[0]!.models}
       threadRef={CODEX_THREAD_REF}
-      model={props.model ?? DEFAULT_MODEL_BY_PROVIDER.hermes}
+      model={props.model ?? DEFAULT_MODEL_BY_PROVIDER.codex}
       prompt=""
       modelOptions={props.options}
       onPromptChange={() => {}}
@@ -431,7 +434,7 @@ async function mountHermesBasicPicker(props: { model?: string; options?: HermesM
   };
 }
 
-describe("TraitsPicker (Hermes)", () => {
+describe("TraitsPicker (Codex)", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     localStorage.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
@@ -444,7 +447,7 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows fast mode controls", async () => {
-    await using _ = await mountHermesBasicPicker({
+    await using _ = await mountCodexPicker({
       options: { fastMode: false },
     });
 
@@ -459,7 +462,7 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows Fast in the trigger label when fast mode is active", async () => {
-    await using _ = await mountHermesBasicPicker({
+    await using _ = await mountCodexPicker({
       options: { fastMode: true },
     });
 
@@ -469,7 +472,7 @@ describe("TraitsPicker (Hermes)", () => {
   });
 
   it("shows only the provided effort options", async () => {
-    await using _ = await mountHermesBasicPicker({
+    await using _ = await mountCodexPicker({
       options: { fastMode: false },
     });
 
@@ -484,16 +487,16 @@ describe("TraitsPicker (Hermes)", () => {
     });
   });
 
-  it("persists sticky hermes model options when traits change", async () => {
-    await using _ = await mountHermesBasicPicker({
+  it("persists sticky codex model options when traits change", async () => {
+    await using _ = await mountCodexPicker({
       options: { fastMode: false },
     });
 
     await page.getByRole("button").click();
     await page.getByRole("menuitemradio", { name: "on" }).click();
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.hermes).toMatchObject({
-      provider: "hermes",
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
+      provider: "codex",
       options: { fastMode: true },
     });
   });

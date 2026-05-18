@@ -161,6 +161,8 @@ const terminalContextIdListsEqual = (
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
+  showInteractionModeControls: boolean;
+  showRuntimeModeControls: boolean;
   showPlanToggle: boolean;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
@@ -175,60 +177,66 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
     <>
       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
 
-      <Button
-        variant="ghost"
-        className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-        size="sm"
-        type="button"
-        onClick={props.onToggleInteractionMode}
-        title={
-          props.interactionMode === "plan"
-            ? "Plan mode — click to return to normal build mode"
-            : "Default mode — click to enter plan mode"
-        }
-      >
-        <BotIcon />
-        <span className="sr-only sm:not-sr-only">
-          {props.interactionMode === "plan" ? "Plan" : "Build"}
-        </span>
-      </Button>
-
-      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-
-      <Select
-        value={props.runtimeMode}
-        onValueChange={(value) => props.onRuntimeModeChange(value!)}
-      >
-        <SelectTrigger
+      {props.showInteractionModeControls ? (
+        <Button
           variant="ghost"
+          className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
           size="sm"
-          className="font-medium"
-          aria-label="Runtime mode"
-          title={runtimeModeOption.description}
+          type="button"
+          onClick={props.onToggleInteractionMode}
+          title={
+            props.interactionMode === "plan"
+              ? "Plan mode — click to return to normal build mode"
+              : "Default mode — click to enter plan mode"
+          }
         >
-          <RuntimeModeIcon className="size-4" />
-          <SelectValue>{runtimeModeOption.label}</SelectValue>
-        </SelectTrigger>
-        <SelectPopup alignItemWithTrigger={false}>
-          {runtimeModeOptions.map((mode) => {
-            const option = runtimeModeConfig[mode];
-            const OptionIcon = option.icon;
-            return (
-              <SelectItem key={mode} value={mode} className="min-w-64 py-2">
-                <div className="grid min-w-0 gap-0.5">
-                  <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                    <OptionIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                    {option.label}
-                  </span>
-                  <span className="text-muted-foreground text-xs leading-4">
-                    {option.description}
-                  </span>
-                </div>
-              </SelectItem>
-            );
-          })}
-        </SelectPopup>
-      </Select>
+          <BotIcon />
+          <span className="sr-only sm:not-sr-only">
+            {props.interactionMode === "plan" ? "Plan" : "Build"}
+          </span>
+        </Button>
+      ) : null}
+
+      {props.showInteractionModeControls && props.showRuntimeModeControls ? (
+        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+      ) : null}
+
+      {props.showRuntimeModeControls ? (
+        <Select
+          value={props.runtimeMode}
+          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+        >
+          <SelectTrigger
+            variant="ghost"
+            size="sm"
+            className="font-medium"
+            aria-label="Runtime mode"
+            title={runtimeModeOption.description}
+          >
+            <RuntimeModeIcon className="size-4" />
+            <SelectValue>{runtimeModeOption.label}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup alignItemWithTrigger={false}>
+            {runtimeModeOptions.map((mode) => {
+              const option = runtimeModeConfig[mode];
+              const OptionIcon = option.icon;
+              return (
+                <SelectItem key={mode} value={mode} className="min-w-64 py-2">
+                  <div className="grid min-w-0 gap-0.5">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                      <OptionIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      {option.label}
+                    </span>
+                    <span className="text-muted-foreground text-xs leading-4">
+                      {option.description}
+                    </span>
+                  </div>
+                </SelectItem>
+              );
+            })}
+          </SelectPopup>
+        </Select>
+      ) : null}
 
       {props.showPlanToggle ? (
         <>
@@ -573,6 +581,8 @@ export const ChatComposer = memo(
       () => providerStatuses.find((provider) => provider.provider === selectedProvider),
       [providerStatuses, selectedProvider],
     );
+    const supportsInteractionMode = selectedProviderStatus?.capabilities?.interactionMode ?? true;
+    const supportsRuntimeMode = selectedProviderStatus?.capabilities?.runtimeMode ?? true;
 
     const composerProviderState = useMemo(
       () =>
@@ -602,6 +612,9 @@ export const ChatComposer = memo(
     >(
       () => ({
         hermes: providerStatuses.find((provider) => provider.provider === "hermes")?.models ?? [],
+        codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
+        claudeAgent:
+          providerStatuses.find((provider) => provider.provider === "claudeAgent")?.models ?? [],
       }),
       [providerStatuses],
     );
@@ -748,8 +761,28 @@ export const ChatComposer = memo(
             description: command.description ?? command.input?.hint ?? "Run provider command",
           }),
         );
+        const providerSkillCommandItems =
+          selectedProvider === "hermes"
+            ? (selectedProviderStatus?.skills ?? []).map((skill) => ({
+                id: `provider-slash-command:${selectedProvider}:skill:${skill.name}`,
+                type: "provider-slash-command" as const,
+                provider: selectedProvider,
+                command: {
+                  name: `skill ${skill.name}`,
+                  description:
+                    skill.shortDescription ?? skill.description ?? `Run ${skill.name} skill`,
+                },
+                label: `/skill ${skill.name}`,
+                description:
+                  skill.shortDescription ?? skill.description ?? `Run ${skill.name} Hermes skill`,
+              }))
+            : [];
         const query = composerTrigger.query.trim().toLowerCase();
-        const slashCommandItems = [...builtInSlashCommandItems, ...providerSlashCommandItems];
+        const slashCommandItems = [
+          ...builtInSlashCommandItems,
+          ...providerSlashCommandItems,
+          ...providerSkillCommandItems,
+        ];
         if (!query) {
           return slashCommandItems;
         }
@@ -833,7 +866,8 @@ export const ChatComposer = memo(
       (showPlanFollowUpPrompt && activeProposedPlan !== null);
 
     const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
-    const showPlanSidebarToggle = Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
+    const showPlanSidebarToggle =
+      supportsInteractionMode && Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
     const composerFooterActionLayoutKey = useMemo(() => {
       if (activePendingProgress) {
         return `pending:${activePendingProgress.questionIndex}:${activePendingProgress.isLastQuestion}:${activePendingIsResponding}`;
@@ -1931,6 +1965,8 @@ export const ChatComposer = memo(
                       planSidebarLabel={planSidebarLabel}
                       planSidebarOpen={planSidebarOpen}
                       runtimeMode={runtimeMode}
+                      showInteractionModeControls={supportsInteractionMode}
+                      showRuntimeModeControls={supportsRuntimeMode}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={toggleInteractionMode}
                       onTogglePlanSidebar={togglePlanSidebar}
@@ -1947,16 +1983,20 @@ export const ChatComposer = memo(
                           {providerTraitsPicker}
                         </>
                       ) : null}
-                      <ComposerFooterModeControls
-                        interactionMode={interactionMode}
-                        runtimeMode={runtimeMode}
-                        showPlanToggle={showPlanSidebarToggle}
-                        planSidebarLabel={planSidebarLabel}
-                        planSidebarOpen={planSidebarOpen}
-                        onToggleInteractionMode={toggleInteractionMode}
-                        onRuntimeModeChange={handleRuntimeModeChange}
-                        onTogglePlanSidebar={togglePlanSidebar}
-                      />
+                      {supportsInteractionMode || supportsRuntimeMode || showPlanSidebarToggle ? (
+                        <ComposerFooterModeControls
+                          interactionMode={interactionMode}
+                          runtimeMode={runtimeMode}
+                          showInteractionModeControls={supportsInteractionMode}
+                          showRuntimeModeControls={supportsRuntimeMode}
+                          showPlanToggle={showPlanSidebarToggle}
+                          planSidebarLabel={planSidebarLabel}
+                          planSidebarOpen={planSidebarOpen}
+                          onToggleInteractionMode={toggleInteractionMode}
+                          onRuntimeModeChange={handleRuntimeModeChange}
+                          onTogglePlanSidebar={togglePlanSidebar}
+                        />
+                      ) : null}
                     </>
                   )}
                 </div>

@@ -166,7 +166,7 @@ function createBaseServerConfig(): ServerConfig {
     issues: [],
     providers: [
       {
-        provider: "hermes",
+        provider: "codex",
         enabled: true,
         installed: true,
         version: "0.116.0",
@@ -322,7 +322,7 @@ function createSnapshotForTargetUser(options: {
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
-          provider: "hermes",
+          provider: "codex",
           model: "gpt-5",
         },
         scripts: [],
@@ -337,7 +337,7 @@ function createSnapshotForTargetUser(options: {
         projectId: PROJECT_ID,
         title: THREAD_TITLE,
         modelSelection: {
-          provider: "hermes",
+          provider: "codex",
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -356,7 +356,7 @@ function createSnapshotForTargetUser(options: {
         session: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
-          providerName: "hermes",
+          providerName: "codex",
           runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
@@ -402,7 +402,7 @@ function addThreadToSnapshot(
         projectId: PROJECT_ID,
         title: "New thread",
         modelSelection: {
-          provider: "hermes",
+          provider: "codex",
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -421,7 +421,7 @@ function addThreadToSnapshot(
         session: {
           threadId,
           status: "ready",
-          providerName: "hermes",
+          providerName: "codex",
           runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
@@ -587,7 +587,7 @@ async function startPromotedServerThreadViaDomainEvent(threadId: ThreadId): Prom
   fixture.snapshot = updateThreadSessionInSnapshot(fixture.snapshot, threadId, {
     threadId,
     status: "running",
-    providerName: "hermes",
+    providerName: "codex",
     runtimeMode: "full-access",
     activeTurnId: `turn-${threadId}` as TurnId,
     lastError: null,
@@ -739,7 +739,7 @@ function createSnapshotWithSecondaryProject(options?: {
           id: "thread-secondary-project" as ThreadId,
           projectId: SECOND_PROJECT_ID,
           title: "Release checklist",
-          modelSelection: { provider: "hermes", model: "gpt-5" },
+          modelSelection: { provider: "codex", model: "gpt-5" },
           interactionMode: "default",
           runtimeMode: "full-access",
           branch: "release/docs-portal",
@@ -755,7 +755,7 @@ function createSnapshotWithSecondaryProject(options?: {
           session: {
             threadId: "thread-secondary-project" as ThreadId,
             status: "ready",
-            providerName: "hermes",
+            providerName: "codex",
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
@@ -771,7 +771,7 @@ function createSnapshotWithSecondaryProject(options?: {
           id: ARCHIVED_SECONDARY_THREAD_ID,
           projectId: SECOND_PROJECT_ID,
           title: "Archived Docs Notes",
-          modelSelection: { provider: "hermes", model: "gpt-5" },
+          modelSelection: { provider: "codex", model: "gpt-5" },
           interactionMode: "default",
           runtimeMode: "full-access",
           branch: "release/docs-archive",
@@ -787,7 +787,7 @@ function createSnapshotWithSecondaryProject(options?: {
           session: {
             threadId: ARCHIVED_SECONDARY_THREAD_ID,
             status: "ready",
-            providerName: "hermes",
+            providerName: "codex",
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
@@ -806,7 +806,7 @@ function createSnapshotWithSecondaryProject(options?: {
         id: SECOND_PROJECT_ID,
         title: "Docs Portal",
         workspaceRoot: "/repo/clients/docs-portal",
-        defaultModelSelection: { provider: "hermes", model: "gpt-5" },
+        defaultModelSelection: { provider: "codex", model: "gpt-5" },
         scripts: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -883,7 +883,7 @@ function createSnapshotWithPendingUserInput(): OrchestrationReadModel {
 }
 
 function createSnapshotWithPlanFollowUpPrompt(options?: {
-  modelSelection?: { provider: "hermes"; model: string };
+  modelSelection?: { provider: "codex"; model: string };
   planMarkdown?: string;
 }): OrchestrationReadModel {
   const snapshot = createSnapshotForTargetUser({
@@ -891,7 +891,7 @@ function createSnapshotWithPlanFollowUpPrompt(options?: {
     targetText: "plan follow-up thread",
   });
   const modelSelection = options?.modelSelection ?? {
-    provider: "hermes" as const,
+    provider: "codex" as const,
     model: "gpt-5",
   };
   const planMarkdown =
@@ -3762,26 +3762,26 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("snapshots sticky hermes settings into a new draft thread", async () => {
+  it("snapshots sticky codex settings into a new draft thread", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        hermes: {
-          provider: "hermes",
-          model: "gpt-5.3-hermes",
+        codex: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
           options: {
             reasoningEffort: "medium",
             fastMode: true,
           },
         },
       },
-      stickyActiveProvider: "hermes",
+      stickyActiveProvider: "codex",
     });
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-sticky-hermes-traits-test" as MessageId,
-        targetText: "sticky hermes traits test",
+        targetMessageId: "msg-user-sticky-codex-traits-test" as MessageId,
+        targetText: "sticky codex traits test",
       }),
     });
 
@@ -3800,41 +3800,41 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(composerDraftFor(newDraftId)).toMatchObject({
         modelSelectionByProvider: {
-          hermes: {
-            provider: "hermes",
-            model: "gpt-5.3-hermes",
+          codex: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
             options: {
               fastMode: true,
             },
           },
         },
-        activeProvider: "hermes",
+        activeProvider: "codex",
       });
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("hydrates the provider alongside a sticky hermes model", async () => {
+  it("hydrates the provider alongside a sticky claude model", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        hermes: {
-          provider: "hermes",
-          model: "hermes-opus-4-6",
+        claudeAgent: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
           options: {
             effort: "max",
             fastMode: true,
           },
         },
       },
-      stickyActiveProvider: "hermes",
+      stickyActiveProvider: "claudeAgent",
     });
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-sticky-hermes-model-test" as MessageId,
-        targetText: "sticky hermes model test",
+        targetMessageId: "msg-user-sticky-claude-model-test" as MessageId,
+        targetText: "sticky claude model test",
       }),
     });
 
@@ -3847,22 +3847,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadPath = await waitForURL(
         mounted.router,
         (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new sticky hermes draft thread UUID.",
+        "Route should have changed to a new sticky claude draft thread UUID.",
       );
       const newDraftId = draftIdFromPath(newThreadPath);
 
       expect(composerDraftFor(newDraftId)).toMatchObject({
         modelSelectionByProvider: {
-          hermes: {
-            provider: "hermes",
-            model: "hermes-opus-4-6",
+          claudeAgent: {
+            provider: "claudeAgent",
+            model: "claude-opus-4-6",
             options: {
               effort: "max",
               fastMode: true,
             },
           },
         },
-        activeProvider: "hermes",
+        activeProvider: "claudeAgent",
       });
     } finally {
       await mounted.cleanup();
@@ -3873,8 +3873,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-default-hermes-traits-test" as MessageId,
-        targetText: "default hermes traits test",
+        targetMessageId: "msg-user-default-codex-traits-test" as MessageId,
+        targetText: "default codex traits test",
       }),
     });
 
@@ -3900,23 +3900,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("prefers draft state over sticky composer settings and defaults", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        hermes: {
-          provider: "hermes",
-          model: "gpt-5.3-hermes",
+        codex: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
           options: {
             reasoningEffort: "medium",
             fastMode: true,
           },
         },
       },
-      stickyActiveProvider: "hermes",
+      stickyActiveProvider: "codex",
     });
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-draft-hermes-traits-precedence-test" as MessageId,
-        targetText: "draft hermes traits precedence test",
+        targetMessageId: "msg-user-draft-codex-traits-precedence-test" as MessageId,
+        targetText: "draft codex traits precedence test",
       }),
     });
 
@@ -3935,19 +3935,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(composerDraftFor(draftId)).toMatchObject({
         modelSelectionByProvider: {
-          hermes: {
-            provider: "hermes",
-            model: "gpt-5.3-hermes",
+          codex: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
             options: {
               fastMode: true,
             },
           },
         },
-        activeProvider: "hermes",
+        activeProvider: "codex",
       });
 
       useComposerDraftStore.getState().setModelSelection(draftId, {
-        provider: "hermes",
+        provider: "codex",
         model: "gpt-5.4",
         options: {
           reasoningEffort: "low",
@@ -3964,8 +3964,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       expect(composerDraftFor(draftId)).toMatchObject({
         modelSelectionByProvider: {
-          hermes: {
-            provider: "hermes",
+          codex: {
+            provider: "codex",
             model: "gpt-5.4",
             options: {
               reasoningEffort: "low",
@@ -3973,7 +3973,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             },
           },
         },
-        activeProvider: "hermes",
+        activeProvider: "codex",
       });
     } finally {
       await mounted.cleanup();
@@ -4476,10 +4476,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }),
       resolveRpc: (body) => {
         if (body._tag === WS_METHODS.filesystemBrowse) {
-          if (body.partialPath === "~/Development/hermes/") {
+          if (body.partialPath === "~/Development/codex/") {
             return {
-              parentPath: "~/Development/hermes/",
-              entries: [{ name: "Hermes.app", fullPath: "~/Development/hermes/Hermes.app" }],
+              parentPath: "~/Development/codex/",
+              entries: [{ name: "Codex.app", fullPath: "~/Development/codex/Codex.app" }],
             };
           }
 
@@ -4506,7 +4506,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await expect.element(palette).toBeInTheDocument();
       const browseInput = await waitForCommandPaletteInput(ADD_PROJECT_SUBMENU_PLACEHOLDER);
-      await page.getByPlaceholder(ADD_PROJECT_SUBMENU_PLACEHOLDER).fill("~/Development/hermes/");
+      await page.getByPlaceholder(ADD_PROJECT_SUBMENU_PLACEHOLDER).fill("~/Development/codex/");
 
       await vi.waitFor(
         () => {
@@ -4514,7 +4514,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             wsRequests.some(
               (request) =>
                 request._tag === WS_METHODS.filesystemBrowse &&
-                request.partialPath === "~/Development/hermes/",
+                request.partialPath === "~/Development/codex/",
             ),
           ).toBe(true);
         },
@@ -4548,8 +4548,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(dispatchRequest).toMatchObject({
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             type: "project.create",
-            workspaceRoot: "~/Development/hermes",
-            title: "hermes",
+            workspaceRoot: "~/Development/codex",
+            title: "codex",
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -5417,7 +5417,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotWithPlanFollowUpPrompt({
-        modelSelection: { provider: "hermes", model: "gpt-5.3-hermes-spark" },
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex-spark" },
         planMarkdown:
           "# Imaginary Long-Range Plan: T3 Delta Adaptive Orchestration and Safe-Delay Execution Initiative",
       }),
@@ -5447,7 +5447,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotWithPlanFollowUpPrompt({
-        modelSelection: { provider: "hermes", model: "gpt-5.3-hermes-spark" },
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex-spark" },
         planMarkdown:
           "# Imaginary Long-Range Plan: T3 Delta Adaptive Orchestration and Safe-Delay Execution Initiative",
       }),

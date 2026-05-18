@@ -1,13 +1,14 @@
 import {
-  type HermesModelOptions,
+  type ClaudeModelOptions,
+  type CodexModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@t3delta/contracts";
 import {
-  applyHermesPromptEffortPrefix,
-  isHermesUltrathinkPrompt,
+  applyClaudePromptEffortPrefix,
+  isClaudeUltrathinkPrompt,
   trimOrNull,
   getDefaultEffort,
   getDefaultContextWindow,
@@ -49,15 +50,18 @@ function getRawEffort(
   provider: ProviderKind,
   modelOptions: ProviderOptions | null | undefined,
 ): string | null {
-  return trimOrNull((modelOptions as HermesModelOptions | undefined)?.effort);
+  if (provider === "codex") {
+    return trimOrNull((modelOptions as CodexModelOptions | undefined)?.reasoningEffort);
+  }
+  return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
 }
 
 function getRawContextWindow(
   provider: ProviderKind,
   modelOptions: ProviderOptions | null | undefined,
 ): string | null {
-  if (provider === "hermes") {
-    return trimOrNull((modelOptions as HermesModelOptions | undefined)?.contextWindow);
+  if (provider === "claudeAgent") {
+    return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.contextWindow);
   }
   return null;
 }
@@ -67,7 +71,10 @@ function buildNextOptions(
   modelOptions: ProviderOptions | null | undefined,
   patch: Record<string, unknown>,
 ): ProviderOptions {
-  return { ...(modelOptions as HermesModelOptions | undefined), ...patch } as HermesModelOptions;
+  if (provider === "codex") {
+    return { ...(modelOptions as CodexModelOptions | undefined), ...patch } as CodexModelOptions;
+  }
+  return { ...(modelOptions as ClaudeModelOptions | undefined), ...patch } as ClaudeModelOptions;
 }
 
 function getSelectedTraits(
@@ -91,7 +98,7 @@ function getSelectedTraits(
 
   // Thinking toggle (only for models that support it)
   const thinkingEnabled = caps.supportsThinkingToggle
-    ? ((modelOptions as HermesModelOptions | undefined)?.thinking ?? true)
+    ? ((modelOptions as ClaudeModelOptions | undefined)?.thinking ?? true)
     : null;
 
   // Fast mode
@@ -112,11 +119,11 @@ function getSelectedTraits(
   const ultrathinkPromptControlled =
     allowPromptInjectedEffort &&
     caps.promptInjectedEffortLevels.length > 0 &&
-    isHermesUltrathinkPrompt(prompt);
+    isClaudeUltrathinkPrompt(prompt);
 
   // Check if "ultrathink" appears in the body text (not just our prefix)
   const ultrathinkInBodyText =
-    ultrathinkPromptControlled && isHermesUltrathinkPrompt(prompt.replace(/^Ultrathink:\s*/i, ""));
+    ultrathinkPromptControlled && isClaudeUltrathinkPrompt(prompt.replace(/^Ultrathink:\s*/i, ""));
 
   return {
     caps,
@@ -194,7 +201,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         const nextPrompt =
           prompt.trim().length === 0
             ? ULTRATHINK_PROMPT_PREFIX
-            : applyHermesPromptEffortPrefix(prompt, "ultrathink");
+            : applyClaudePromptEffortPrefix(prompt, "ultrathink");
         onPromptChange(nextPrompt);
         return;
       }
@@ -203,7 +210,10 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
         onPromptChange(stripped);
       }
-      updateModelOptions(buildNextOptions(provider, modelOptions, { effort: nextOption.value }));
+      const effortKey = provider === "codex" ? "reasoningEffort" : "effort";
+      updateModelOptions(
+        buildNextOptions(provider, modelOptions, { [effortKey]: nextOption.value }),
+      );
     },
     [
       ultrathinkPromptControlled,
@@ -362,6 +372,8 @@ export const TraitsPicker = memo(function TraitsPicker({
     .filter(Boolean)
     .join(" · ");
 
+  const isCodexStyle = provider === "codex";
+
   return (
     <Menu
       open={isMenuOpen}
@@ -375,14 +387,25 @@ export const TraitsPicker = memo(function TraitsPicker({
             size="sm"
             variant={triggerVariant ?? "ghost"}
             className={cn(
-              "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
+              isCodexStyle
+                ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-3 [&_svg]:mx-0"
+                : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
               triggerClassName,
             )}
           />
         }
       >
-        <span>{triggerLabel}</span>
-        <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
+        {isCodexStyle ? (
+          <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
+            {triggerLabel}
+            <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+          </span>
+        ) : (
+          <>
+            <span>{triggerLabel}</span>
+            <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
+          </>
+        )}
       </MenuTrigger>
       <MenuPopup align="start">
         <TraitsMenuContent

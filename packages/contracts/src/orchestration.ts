@@ -1,5 +1,5 @@
 import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
-import { HermesModelOptions } from "./model.ts";
+import { ClaudeModelOptions, CodexModelOptions, HermesModelOptions } from "./model.ts";
 import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
@@ -25,8 +25,12 @@ export const ORCHESTRATION_WS_METHODS = {
   subscribeThread: "orchestration.subscribeThread",
 } as const;
 
-export const ProviderKind = Schema.Literals(["hermes"]);
+export const ProviderKind = Schema.Literals(["hermes", "codex", "claudeAgent"]);
 export type ProviderKind = typeof ProviderKind.Type;
+export const ACTIVE_PROVIDER_KINDS = ["hermes", "codex"] as const;
+export type ActiveProviderKind = (typeof ACTIVE_PROVIDER_KINDS)[number];
+export const LEGACY_PROVIDER_KINDS = ["claudeAgent"] as const;
+export type LegacyProviderKind = (typeof LEGACY_PROVIDER_KINDS)[number];
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
   "on-failure",
@@ -50,7 +54,25 @@ export const HermesModelSelection = Schema.Struct({
 });
 export type HermesModelSelection = typeof HermesModelSelection.Type;
 
-export const ModelSelection = HermesModelSelection;
+export const CodexModelSelection = Schema.Struct({
+  provider: Schema.Literal("codex"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(CodexModelOptions),
+});
+export type CodexModelSelection = typeof CodexModelSelection.Type;
+
+export const ClaudeModelSelection = Schema.Struct({
+  provider: Schema.Literal("claudeAgent"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(ClaudeModelOptions),
+});
+export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
+
+export const ModelSelection = Schema.Union([
+  HermesModelSelection,
+  CodexModelSelection,
+  ClaudeModelSelection,
+]);
 export type ModelSelection = typeof ModelSelection.Type;
 
 export const RuntimeMode = Schema.Literals([

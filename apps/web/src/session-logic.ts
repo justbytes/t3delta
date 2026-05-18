@@ -28,8 +28,7 @@ export const PROVIDER_OPTIONS: Array<{
   available: boolean;
 }> = [
   { value: "hermes", label: "Hermes", available: true },
-  { value: "hermes", label: "Hermes", available: true },
-  { value: "cursor", label: "Cursor", available: false },
+  { value: "codex", label: "Codex CLI", available: true },
 ];
 
 export interface WorkLogEntry {
