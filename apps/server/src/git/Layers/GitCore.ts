@@ -127,6 +127,15 @@ function parseNumstatEntries(
   return entries;
 }
 
+function normalizeNoIndexPath(rawPath: string): string {
+  return rawPath
+    .replace(/^"?(?:[ab]\/)?dev\/null"?$/, "")
+    .replace(/^"?(?:[ab]\/)?\/dev\/null"?$/, "")
+    .replace(/^"?[ab]\//, "")
+    .replace(/"$/g, "")
+    .trim();
+}
+
 function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   const parts = input.split("\0");
   if (parts.length === 0) return [];
@@ -860,6 +869,57 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       ),
     );
 
+  const readUntrackedFileNumstat = (
+    cwd: string,
+    filePath: string,
+  ): Effect.Effect<{ path: string; insertions: number; deletions: number } | null, never> =>
+    runGitStdoutWithOptions(
+      "GitCore.untrackedFileNumstat",
+      cwd,
+      ["diff", "--no-index", "--numstat", "--", "/dev/null", filePath],
+      {
+        allowNonZeroExit: true,
+        maxOutputBytes: 16_384,
+        truncateOutputAtMaxBytes: true,
+      },
+    ).pipe(
+      Effect.map((stdout) => {
+        const entry = parseNumstatEntries(stdout)
+          .map((candidate) => ({
+            ...candidate,
+            path: normalizeNoIndexPath(candidate.path) || filePath,
+          }))
+          .find((candidate) => candidate.path === filePath || candidate.path.endsWith(filePath));
+        return entry ? { ...entry, path: filePath } : null;
+      }),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+
+  const readUntrackedFilePatch = (
+    cwd: string,
+    filePath: string,
+    maxOutputBytes: number,
+  ): Effect.Effect<string, never> =>
+    runGitStdoutWithOptions(
+      "GitCore.untrackedFilePatch",
+      cwd,
+      ["diff", "--no-index", "--patch", "--minimal", "--", "/dev/null", filePath],
+      {
+        allowNonZeroExit: true,
+        maxOutputBytes,
+        truncateOutputAtMaxBytes: true,
+      },
+    ).pipe(
+      Effect.map((stdout) =>
+        stdout
+          .replaceAll("a/dev/null", "/dev/null")
+          .replaceAll("a//dev/null", "/dev/null")
+          .replaceAll("b/dev/null", `b/${filePath}`)
+          .replaceAll("b//dev/null", `b/${filePath}`),
+      ),
+      Effect.catch(() => Effect.succeed("")),
+    );
+
   const branchExists = (cwd: string, branch: string): Effect.Effect<boolean, GitCommandError> =>
     executeGit(
       "GitCore.branchExists",
@@ -1254,6 +1314,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let behindCount = 0;
     let hasWorkingTreeChanges = false;
     const changedFilesWithoutNumstat = new Set<string>();
+    const untrackedFiles = new Set<string>();
 
     for (const line of statusStdout.split(/\r?\n/g)) {
       if (line.startsWith("# branch.head ")) {
@@ -1276,7 +1337,12 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       if (line.trim().length > 0 && !line.startsWith("#")) {
         hasWorkingTreeChanges = true;
         const pathValue = parsePorcelainPath(line);
-        if (pathValue) changedFilesWithoutNumstat.add(pathValue);
+        if (pathValue) {
+          changedFilesWithoutNumstat.add(pathValue);
+          if (line.startsWith("? ")) {
+            untrackedFiles.add(pathValue);
+          }
+        }
       }
     }
 
@@ -1289,8 +1355,20 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
     const stagedEntries = parseNumstatEntries(stagedNumstatStdout);
     const unstagedEntries = parseNumstatEntries(unstagedNumstatStdout);
+    const untrackedEntries = yield* Effect.forEach(
+      [...untrackedFiles],
+      (filePath) => readUntrackedFileNumstat(cwd, filePath),
+      { concurrency: 4 },
+    ).pipe(
+      Effect.map((entries) =>
+        entries.filter(
+          (entry): entry is { path: string; insertions: number; deletions: number } =>
+            entry !== null,
+        ),
+      ),
+    );
     const fileStatMap = new Map<string, { insertions: number; deletions: number }>();
-    for (const entry of [...stagedEntries, ...unstagedEntries]) {
+    for (const entry of [...stagedEntries, ...unstagedEntries, ...untrackedEntries]) {
       const existing = fileStatMap.get(entry.path) ?? { insertions: 0, deletions: 0 };
       existing.insertions += entry.insertions;
       existing.deletions += entry.deletions;
@@ -1653,7 +1731,45 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         },
       );
 
-      return { diff };
+      const untrackedStdout = yield* runGitStdoutWithOptions(
+        "GitCore.readWorkingTreeDiff.untrackedFiles",
+        input.cwd,
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        {
+          maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        },
+      );
+      const untrackedFiles = splitNullSeparatedPaths(
+        untrackedStdout.replace(OUTPUT_TRUNCATED_MARKER, ""),
+        untrackedStdout.includes(OUTPUT_TRUNCATED_MARKER),
+      );
+
+      let combinedDiff = diff;
+      if (combinedDiff.endsWith(OUTPUT_TRUNCATED_MARKER)) {
+        return { diff: combinedDiff };
+      }
+
+      for (const filePath of untrackedFiles) {
+        const currentBytes = Buffer.byteLength(combinedDiff);
+        if (currentBytes >= WORKING_TREE_DIFF_PATCH_MAX_OUTPUT_BYTES) {
+          if (!combinedDiff.endsWith(OUTPUT_TRUNCATED_MARKER)) {
+            combinedDiff = `${combinedDiff}${OUTPUT_TRUNCATED_MARKER}`;
+          }
+          break;
+        }
+
+        const remainingBytes = WORKING_TREE_DIFF_PATCH_MAX_OUTPUT_BYTES - currentBytes;
+        const untrackedPatch = yield* readUntrackedFilePatch(input.cwd, filePath, remainingBytes);
+        if (!untrackedPatch.trim()) {
+          continue;
+        }
+
+        const separator = combinedDiff.length > 0 && !combinedDiff.endsWith("\n") ? "\n" : "";
+        combinedDiff = `${combinedDiff}${separator}${untrackedPatch}`;
+      }
+
+      return { diff: combinedDiff };
     },
   );
 

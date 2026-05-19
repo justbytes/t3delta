@@ -1,33 +1,115 @@
+import { DiffIcon, FolderIcon, PlusIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 
 import { Skeleton } from "./ui/skeleton";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
+import { Button } from "./ui/button";
 
 export type WorkspaceSidecarMode = "diff" | "explorer";
 export type WorkspaceSidecarLayoutMode = "inline" | "sheet" | "sidebar";
+const EMPTY_SIDECARS: ReadonlyArray<WorkspaceSidecarMode> = [];
 
 export function WorkspaceSidecarShell(props: {
   mode: WorkspaceSidecarLayoutMode;
   sidecar: WorkspaceSidecarMode;
+  openSidecars?: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars?: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab?: (sidecar: WorkspaceSidecarMode) => void;
   header?: ReactNode;
   toolbar?: ReactNode;
   children: ReactNode;
 }) {
+  const availableSidecars = props.availableSidecars ?? EMPTY_SIDECARS;
+  const tabs = props.openSidecars?.length ? props.openSidecars : [props.sidecar];
+  const hasAvailableSidecars = availableSidecars.length > 0;
+
   return (
     <div
       className={cn(
-        "flex h-full min-w-0 flex-col bg-background/95 backdrop-blur-sm",
+        "flex h-full min-w-0 flex-col bg-transparent",
         props.mode === "inline"
           ? props.sidecar === "diff"
-            ? "w-[42vw] min-w-[360px] max-w-[560px] shrink-0 border-l border-border"
-            : "w-[42vw] min-w-0 max-w-[560px] shrink-0 border-l border-border"
+            ? "w-[42vw] min-w-[360px] max-w-[560px] shrink-0"
+            : "w-[42vw] min-w-0 max-w-[560px] shrink-0"
           : "w-full",
       )}
     >
+      <div className="flex min-h-[34px] shrink-0 items-end gap-1 border-b border-border/50 px-2 pt-2 [-webkit-app-region:no-drag]">
+        {tabs.map((tab) => {
+          const active = props.sidecar === tab;
+          const Icon = tab === "diff" ? DiffIcon : FolderIcon;
+          const label = tab === "diff" ? "Git diff" : "Explorer";
+          return (
+            <div
+              key={tab}
+              className={cn(
+                "group flex h-7 min-w-0 max-w-32 items-center gap-1.5 rounded-t-lg border px-2 text-xs transition-colors",
+                active
+                  ? "border-border/60 border-b-transparent bg-background/45 text-foreground"
+                  : "border-border/35 bg-background/20 text-muted-foreground hover:bg-background/35 hover:text-foreground",
+              )}
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+                onClick={() => props.onSelectSidecar?.(tab)}
+                aria-current={active ? "page" : undefined}
+              >
+                <Icon className="size-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{label}</span>
+              </button>
+              <button
+                type="button"
+                className="ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground/70 opacity-70 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                aria-label={`Close ${label} tab`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onCloseSidecarTab?.(tab);
+                }}
+              >
+                <XIcon className="size-3" />
+              </button>
+            </div>
+          );
+        })}
+        {hasAvailableSidecars ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  aria-label="Open workspace sidebar tab"
+                  size="icon-xs"
+                  variant="outline"
+                  className="mb-px size-6 rounded-md border-border/45 bg-background/20 text-muted-foreground hover:bg-background/35 hover:text-foreground"
+                />
+              }
+            >
+              <PlusIcon className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup align="start">
+              <div className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
+                Add tab
+              </div>
+              {availableSidecars.map((sidecar) => {
+                const Icon = sidecar === "diff" ? DiffIcon : FolderIcon;
+                const label = sidecar === "diff" ? "Git diff" : "File explorer";
+                return (
+                  <MenuItem key={sidecar} onClick={() => props.onAddSidecar?.(sidecar)}>
+                    <Icon />
+                    {label}
+                  </MenuItem>
+                );
+              })}
+            </MenuPopup>
+          </Menu>
+        ) : null}
+      </div>
       {props.header ? (
-        <div className="border-b border-border/70 bg-card/30">
+        <div className="border-b border-border/50 bg-card/10 backdrop-blur-sm">
           <div className="min-h-[52px] [-webkit-app-region:no-drag]">{props.header}</div>
         </div>
       ) : null}

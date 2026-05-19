@@ -187,7 +187,6 @@ export function ThreadWorkspacePane(props: {
   environmentId: EnvironmentId;
   resolvedTheme: "light" | "dark";
   threadKey: string | null;
-  onOpenDiff: () => void;
   onOpenExplorer: () => void;
   onSwitchToAgent: () => void;
   onToggleTerminal: () => void;
@@ -850,9 +849,6 @@ export function ThreadWorkspacePane(props: {
                 <WorkspaceActionButton onClick={props.onOpenExplorer}>
                   Show file explorer
                 </WorkspaceActionButton>
-                <WorkspaceActionButton onClick={props.onOpenDiff}>
-                  Show git diff
-                </WorkspaceActionButton>
                 <WorkspaceActionButton onClick={props.onToggleTerminal}>
                   {props.terminalOpen ? "Hide terminal" : "Show terminal"}
                 </WorkspaceActionButton>
@@ -1041,14 +1037,9 @@ export function ThreadWorkspacePane(props: {
             title="File too large to preview"
             description={`${activeTooLargeBuffer.relativePath} is ${activeTooLargeBuffer.byteLength.toLocaleString()} bytes. Inline editing is capped for now to keep the center pane responsive.`}
             actions={
-              <>
-                <WorkspaceActionButton onClick={props.onOpenDiff}>
-                  Show git diff
-                </WorkspaceActionButton>
-                <WorkspaceActionButton onClick={props.onOpenExplorer}>
-                  Show file explorer
-                </WorkspaceActionButton>
-              </>
+              <WorkspaceActionButton onClick={props.onOpenExplorer}>
+                Show file explorer
+              </WorkspaceActionButton>
             }
           />
         ) : (

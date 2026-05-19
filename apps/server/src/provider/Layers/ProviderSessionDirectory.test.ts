@@ -133,6 +133,39 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
     }));
 
+  it("upserts and reads Hermes thread bindings", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.make("thread-hermes");
+
+      yield* directory.upsert({
+        provider: "hermes",
+        threadId,
+        status: "running",
+        runtimePayload: {
+          cwd: "/tmp/hermes",
+          model: "openai-codex/gpt-5.5",
+        },
+      });
+
+      const provider = yield* directory.getProvider(threadId);
+      assert.equal(provider, "hermes");
+
+      const binding = yield* directory.getBinding(threadId);
+      assertSome(binding, {
+        threadId,
+        provider: "hermes",
+      });
+
+      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(runtime), true);
+      if (Option.isSome(runtime)) {
+        assert.equal(runtime.value.providerName, "hermes");
+        assert.equal(runtime.value.adapterKey, "hermes");
+      }
+    }));
+
   it("lists persisted bindings with metadata in oldest-first order", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
@@ -140,6 +173,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
       const olderThreadId = ThreadId.make("thread-runtime-older");
       const newerThreadId = ThreadId.make("thread-runtime-newer");
+      const hermesThreadId = ThreadId.make("thread-runtime-hermes");
 
       yield* runtimeRepository.upsert({
         threadId: newerThreadId,
@@ -168,6 +202,21 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         },
         runtimePayload: {
           cwd: "/tmp/older",
+        },
+      });
+
+      yield* runtimeRepository.upsert({
+        threadId: hermesThreadId,
+        providerName: "hermes",
+        adapterKey: "hermes",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: "2026-04-14T12:10:00.000Z",
+        resumeCursor: {
+          opaque: "resume-hermes",
+        },
+        runtimePayload: {
+          cwd: "/tmp/hermes",
         },
       });
 
@@ -202,7 +251,49 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
             cwd: "/tmp/newer",
           },
         },
+        {
+          threadId: hermesThreadId,
+          provider: "hermes",
+          adapterKey: "hermes",
+          runtimeMode: "full-access",
+          status: "running",
+          lastSeenAt: "2026-04-14T12:10:00.000Z",
+          resumeCursor: {
+            opaque: "resume-hermes",
+          },
+          runtimePayload: {
+            cwd: "/tmp/hermes",
+          },
+        },
       ]);
+    }));
+
+  it("fails explicitly for unknown persisted provider names", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.make("thread-unknown-provider");
+
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "unknown",
+        adapterKey: "unknown",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: "2026-04-14T12:15:00.000Z",
+        resumeCursor: null,
+        runtimePayload: null,
+      });
+
+      const result = yield* directory.listBindings().pipe(Effect.result);
+
+      assertFailure(
+        result,
+        new ProviderSessionDirectoryPersistenceError({
+          operation: "ProviderSessionDirectory.listBindings",
+          detail: "Unknown persisted provider 'unknown'.",
+        }),
+      );
     }));
 
   it("resets adapterKey to the new provider when provider changes without an explicit adapter key", () =>

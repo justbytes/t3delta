@@ -173,7 +173,7 @@ export function WorkspaceInlineSidecar(props: {
         side="right"
         collapsible="offcanvas"
         containerPosition="absolute"
-        className="pointer-events-auto top-[52px] h-[calc(100dvh-52px)] border-l border-border bg-card text-foreground"
+        className="pointer-events-auto inset-y-0 h-dvh bg-[var(--panel-glass)] text-foreground shadow-lg/10 backdrop-blur-xl backdrop-saturate-150"
         resizable={{
           minWidth,
           maxWidth: resolveMaxInlineSidecarWidthPx(),

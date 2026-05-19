@@ -40,18 +40,27 @@ import { SidebarInset } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const ProjectExplorerPanel = lazy(() => import("../components/ProjectExplorerPanel"));
+const EMPTY_WORKSPACE_SIDECARS: ReadonlyArray<WorkspaceSidecarMode> = [];
 
 const SidecarLoadingFallback = (props: {
   mode: WorkspaceSidecarLayoutMode;
   sidecar: WorkspaceSidecarMode;
+  openSidecars: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab: (sidecar: WorkspaceSidecarMode) => void;
   label: string;
 }) => {
   return (
     <WorkspaceSidecarShell
       mode={props.mode}
       sidecar={props.sidecar}
+      openSidecars={props.openSidecars}
+      availableSidecars={props.availableSidecars}
       onSelectSidecar={props.onSelectSidecar}
+      onAddSidecar={props.onAddSidecar}
+      onCloseSidecarTab={props.onCloseSidecarTab}
       header={<WorkspaceSidecarHeaderSkeleton />}
     >
       <WorkspaceSidecarLoadingState label={props.label} />
@@ -61,7 +70,11 @@ const SidecarLoadingFallback = (props: {
 
 const LazyDiffPanel = (props: {
   mode: WorkspaceSidecarLayoutMode;
+  openSidecars: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab: (sidecar: WorkspaceSidecarMode) => void;
 }) => {
   return (
     <DiffWorkerPoolProvider>
@@ -70,12 +83,23 @@ const LazyDiffPanel = (props: {
           <SidecarLoadingFallback
             mode={props.mode}
             sidecar="diff"
+            openSidecars={props.openSidecars}
+            availableSidecars={props.availableSidecars}
             onSelectSidecar={props.onSelectSidecar}
+            onAddSidecar={props.onAddSidecar}
+            onCloseSidecarTab={props.onCloseSidecarTab}
             label="Loading diff viewer..."
           />
         }
       >
-        <DiffPanel mode={props.mode} onSelectSidecar={props.onSelectSidecar} />
+        <DiffPanel
+          mode={props.mode}
+          openSidecars={props.openSidecars}
+          availableSidecars={props.availableSidecars}
+          onSelectSidecar={props.onSelectSidecar}
+          onAddSidecar={props.onAddSidecar}
+          onCloseSidecarTab={props.onCloseSidecarTab}
+        />
       </Suspense>
     </DiffWorkerPoolProvider>
   );
@@ -83,7 +107,11 @@ const LazyDiffPanel = (props: {
 
 const LazyProjectExplorerPanel = (props: {
   mode: WorkspaceSidecarLayoutMode;
+  openSidecars: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab: (sidecar: WorkspaceSidecarMode) => void;
 }) => {
   return (
     <Suspense
@@ -91,12 +119,23 @@ const LazyProjectExplorerPanel = (props: {
         <SidecarLoadingFallback
           mode={props.mode}
           sidecar="explorer"
+          openSidecars={props.openSidecars}
+          availableSidecars={props.availableSidecars}
           onSelectSidecar={props.onSelectSidecar}
+          onAddSidecar={props.onAddSidecar}
+          onCloseSidecarTab={props.onCloseSidecarTab}
           label="Loading file explorer..."
         />
       }
     >
-      <ProjectExplorerPanel mode={props.mode} onSelectSidecar={props.onSelectSidecar} />
+      <ProjectExplorerPanel
+        mode={props.mode}
+        openSidecars={props.openSidecars}
+        availableSidecars={props.availableSidecars}
+        onSelectSidecar={props.onSelectSidecar}
+        onAddSidecar={props.onAddSidecar}
+        onCloseSidecarTab={props.onCloseSidecarTab}
+      />
     </Suspense>
   );
 };
@@ -104,12 +143,30 @@ const LazyProjectExplorerPanel = (props: {
 const LazyRightPanel = (props: {
   mode: WorkspaceSidecarLayoutMode;
   sidecar: WorkspaceSidecarMode;
+  openSidecars: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab: (sidecar: WorkspaceSidecarMode) => void;
 }) => {
   return props.sidecar === "explorer" ? (
-    <LazyProjectExplorerPanel mode={props.mode} onSelectSidecar={props.onSelectSidecar} />
+    <LazyProjectExplorerPanel
+      mode={props.mode}
+      openSidecars={props.openSidecars}
+      availableSidecars={props.availableSidecars}
+      onSelectSidecar={props.onSelectSidecar}
+      onAddSidecar={props.onAddSidecar}
+      onCloseSidecarTab={props.onCloseSidecarTab}
+    />
   ) : (
-    <LazyDiffPanel mode={props.mode} onSelectSidecar={props.onSelectSidecar} />
+    <LazyDiffPanel
+      mode={props.mode}
+      openSidecars={props.openSidecars}
+      availableSidecars={props.availableSidecars}
+      onSelectSidecar={props.onSelectSidecar}
+      onAddSidecar={props.onAddSidecar}
+      onCloseSidecarTab={props.onCloseSidecarTab}
+    />
   );
 };
 
@@ -156,10 +213,37 @@ function ChatThreadRouteView() {
     threadKey: currentThreadKey,
     hasOpenedSidecar: sidecarOpen,
   }));
+  const availableSidecars = useMemo<ReadonlyArray<WorkspaceSidecarMode>>(
+    () => ["diff", "explorer"],
+    [],
+  );
+  const [sidecarTabsState, setSidecarTabsState] = useState<{
+    threadKey: string | null;
+    openSidecars: WorkspaceSidecarMode[];
+  }>(() => ({
+    threadKey: currentThreadKey,
+    openSidecars: sidecarOpen ? [sidecarMode] : [],
+  }));
+  const openSidecars =
+    sidecarTabsState.threadKey === currentThreadKey
+      ? sidecarTabsState.openSidecars
+      : EMPTY_WORKSPACE_SIDECARS;
   const hasOpenedSidecar =
     sidecarMountState.threadKey === currentThreadKey
       ? sidecarMountState.hasOpenedSidecar
       : sidecarOpen;
+  const updateOpenSidecars = useCallback(
+    (updater: (previous: WorkspaceSidecarMode[]) => WorkspaceSidecarMode[]) => {
+      setSidecarTabsState((previous) => {
+        const currentTabs = previous.threadKey === currentThreadKey ? previous.openSidecars : [];
+        return {
+          threadKey: currentThreadKey,
+          openSidecars: updater(currentTabs),
+        };
+      });
+    },
+    [currentThreadKey],
+  );
   const markSidecarOpened = useCallback(() => {
     setSidecarMountState((previous) => {
       if (previous.threadKey === currentThreadKey && previous.hasOpenedSidecar) {
@@ -241,6 +325,39 @@ function ChatThreadRouteView() {
     },
     [openDiff, openExplorer],
   );
+  useEffect(() => {
+    if (!sidecarOpen) {
+      return;
+    }
+    updateOpenSidecars((previous) =>
+      previous.includes(sidecarMode) ? previous : [...previous, sidecarMode],
+    );
+  }, [sidecarMode, sidecarOpen, updateOpenSidecars]);
+  const addSidecarTab = useCallback(
+    (nextSidecar: WorkspaceSidecarMode) => {
+      updateOpenSidecars((previous) =>
+        previous.includes(nextSidecar) ? previous : [...previous, nextSidecar],
+      );
+      selectSidecar(nextSidecar);
+    },
+    [selectSidecar, updateOpenSidecars],
+  );
+  const closeSidecarTab = useCallback(
+    (sidecarToClose: WorkspaceSidecarMode) => {
+      const nextOpenSidecars = openSidecars.filter((sidecar) => sidecar !== sidecarToClose);
+      updateOpenSidecars(() => nextOpenSidecars);
+      if (sidecarToClose !== sidecarMode) {
+        return;
+      }
+      const nextActiveSidecar = nextOpenSidecars[0];
+      if (nextActiveSidecar) {
+        selectSidecar(nextActiveSidecar);
+        return;
+      }
+      closeSidecar();
+    },
+    [closeSidecar, openSidecars, selectSidecar, sidecarMode, updateOpenSidecars],
+  );
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
@@ -309,6 +426,9 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderSidecarContent = sidecarOpen || hasOpenedSidecar;
+  const renderedOpenSidecars = openSidecars.includes(sidecarMode)
+    ? openSidecars
+    : [...openSidecars, sidecarMode];
   const inlineSidecarInset =
     sidecarOpen && !shouldUseSidecarSheet
       ? `var(${WORKSPACE_SIDECAR_INLINE_INSET_CSS_VAR}, 0px)`
@@ -318,9 +438,9 @@ function ChatThreadRouteView() {
     return (
       <div
         data-chat-thread-shell="true"
-        className="relative flex h-dvh min-h-0 min-w-0 flex-1 overflow-hidden bg-background text-foreground"
+        className="relative flex h-dvh min-h-0 min-w-0 flex-1 overflow-hidden text-foreground"
       >
-        <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+        <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
           <ChatView
             environmentId={threadRef.environmentId}
             threadId={threadRef.threadId}
@@ -345,7 +465,15 @@ function ChatThreadRouteView() {
           onWidthChangeEnd={setInlineSidecarWidth}
           {...(sidecarMode === "explorer" ? { onCollapsedByResize: closeSidecar } : {})}
         >
-          <LazyRightPanel mode="sidebar" sidecar={sidecarMode} onSelectSidecar={selectSidecar} />
+          <LazyRightPanel
+            mode="sidebar"
+            sidecar={sidecarMode}
+            openSidecars={renderedOpenSidecars}
+            availableSidecars={availableSidecars}
+            onSelectSidecar={selectSidecar}
+            onAddSidecar={addSidecarTab}
+            onCloseSidecarTab={closeSidecarTab}
+          />
         </WorkspaceInlineSidecar>
       </div>
     );
@@ -353,7 +481,7 @@ function ChatThreadRouteView() {
 
   return (
     <>
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
         <ChatView
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}
@@ -363,7 +491,15 @@ function ChatThreadRouteView() {
       </SidebarInset>
       <RightPanelSheet open={sidecarOpen} onClose={closeSidecar}>
         {shouldRenderSidecarContent ? (
-          <LazyRightPanel mode="sheet" sidecar={sidecarMode} onSelectSidecar={selectSidecar} />
+          <LazyRightPanel
+            mode="sheet"
+            sidecar={sidecarMode}
+            openSidecars={renderedOpenSidecars}
+            availableSidecars={availableSidecars}
+            onSelectSidecar={selectSidecar}
+            onAddSidecar={addSidecarTab}
+            onCloseSidecarTab={closeSidecarTab}
+          />
         ) : null}
       </RightPanelSheet>
     </>

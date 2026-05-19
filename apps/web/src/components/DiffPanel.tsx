@@ -3,7 +3,7 @@ import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/reac
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3delta/client-runtime";
-import type { TurnId } from "@t3delta/contracts";
+import type { EnvironmentId, TurnId } from "@t3delta/contracts";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -34,8 +34,13 @@ import { resolveDiffThemeName } from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { selectProjectByRef, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
-import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
+import {
+  buildDraftThreadRouteParams,
+  buildThreadRouteParams,
+  resolveThreadRouteRef,
+} from "../threadRoutes";
 import { useSettings } from "../hooks/useSettings";
+import type { DraftId } from "../composerDraftStore";
 import { formatShortTimestamp } from "../timestampFormat";
 import { basenameOfPath } from "../vscode-icons";
 import {
@@ -46,9 +51,14 @@ import {
 } from "./WorkspaceSidecarShell";
 import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
+import GitActionsControl from "./GitActionsControl";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
+
+function resolveDiffStyle(mode: DiffRenderMode): "unified" | "split" {
+  return mode === "split" ? "split" : "unified";
+}
 
 const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header],
@@ -118,12 +128,15 @@ type RenderablePatch =
   | {
       kind: "files";
       files: FileDiffMetadata[];
+      notice?: string;
     }
   | {
       kind: "raw";
       text: string;
       reason: string;
     };
+
+const PATCH_TRUNCATED_MARKER = "[truncated]";
 
 function getRenderablePatch(
   patch: string | undefined,
@@ -132,29 +145,62 @@ function getRenderablePatch(
   if (!patch) return null;
   const normalizedPatch = patch.trim();
   if (normalizedPatch.length === 0) return null;
+  const isTruncated = normalizedPatch.endsWith(PATCH_TRUNCATED_MARKER);
+  const parserPatch = isTruncated
+    ? normalizedPatch.slice(0, -PATCH_TRUNCATED_MARKER.length).trimEnd()
+    : normalizedPatch;
+  if (parserPatch.length === 0) return null;
 
   try {
-    const parsedPatches = parsePatchFiles(
-      normalizedPatch,
-      buildPatchCacheKey(normalizedPatch, cacheScope),
-    );
+    const parsedPatches = parsePatchFiles(parserPatch, buildPatchCacheKey(parserPatch, cacheScope));
     const files = parsedPatches.flatMap((parsedPatch) => parsedPatch.files);
     if (files.length > 0) {
-      return { kind: "files", files };
+      return {
+        kind: "files",
+        files,
+        ...(isTruncated
+          ? { notice: "Patch output was truncated. Showing renderable portion." }
+          : {}),
+      };
     }
 
     return {
       kind: "raw",
       text: normalizedPatch,
-      reason: "Unsupported diff format. Showing raw patch.",
+      reason: isTruncated
+        ? "Patch output was truncated. Showing raw patch."
+        : "Unsupported diff format. Showing raw patch.",
     };
   } catch {
     return {
       kind: "raw",
       text: normalizedPatch,
-      reason: "Failed to parse patch. Showing raw patch.",
+      reason: isTruncated
+        ? "Patch output was truncated before it could be rendered. Showing raw patch."
+        : "Failed to parse patch. Showing raw patch.",
     };
   }
+}
+
+function getRawDiffLineClassName(line: string): string {
+  if (line.startsWith("+") && !line.startsWith("+++")) {
+    return "bg-emerald-500/10 text-emerald-300";
+  }
+  if (line.startsWith("-") && !line.startsWith("---")) {
+    return "bg-rose-500/10 text-rose-300";
+  }
+  if (line.startsWith("@@")) {
+    return "bg-sky-500/10 text-sky-300";
+  }
+  if (
+    line.startsWith("diff --git") ||
+    line.startsWith("index ") ||
+    line.startsWith("+++") ||
+    line.startsWith("---")
+  ) {
+    return "text-foreground/85";
+  }
+  return "text-muted-foreground/90";
 }
 
 function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
@@ -171,12 +217,29 @@ function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
 
 interface DiffPanelProps {
   mode?: WorkspaceSidecarLayoutMode;
+  openSidecars?: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars?: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab?: (sidecar: WorkspaceSidecarMode) => void;
+  draftContext?: {
+    environmentId: EnvironmentId;
+    cwd: string | null;
+    draftId: DraftId;
+  };
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
-export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPanelProps) {
+export default function DiffPanel({
+  mode = "inline",
+  openSidecars,
+  availableSidecars,
+  onSelectSidecar,
+  onAddSidecar,
+  onCloseSidecarTab,
+  draftContext,
+}: DiffPanelProps) {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
   const settings = useSettings();
@@ -191,12 +254,19 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
     strict: false,
     select: (params) => resolveThreadRouteRef(params),
   });
+  const routeDraftId = useParams({
+    strict: false,
+    select: (params) => (typeof params.draftId === "string" ? (params.draftId as DraftId) : null),
+  });
   const diffSearch = useSearch({ strict: false, select: (search) => parseDiffRouteSearch(search) });
   const diffOpen = diffSearch.diff === "1";
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useStore(
     useMemo(() => createThreadSelectorByRef(routeThreadRef), [routeThreadRef]),
   );
+  const activeThreadRef = activeThread
+    ? scopeThreadRef(activeThread.environmentId, activeThread.id)
+    : null;
   const activeProjectId = activeThread?.projectId ?? null;
   const activeProject = useStore((store) =>
     activeThread && activeProjectId
@@ -206,9 +276,10 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
         })
       : undefined,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
+  const activeEnvironmentId = activeThread?.environmentId ?? draftContext?.environmentId ?? null;
+  const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? draftContext?.cwd;
   const gitStatusQuery = useGitStatus({
-    environmentId: activeThread?.environmentId ?? null,
+    environmentId: activeEnvironmentId,
     cwd: activeCwd ?? null,
   });
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
@@ -230,8 +301,9 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
   );
 
   const selectedTurnId = diffSearch.diffTurnId ?? null;
-  const diffTarget =
-    selectedTurnId !== null
+  const diffTarget = draftContext
+    ? "workingTree"
+    : selectedTurnId !== null
       ? "turn"
       : diffSearch.diffTarget === "conversation"
         ? "conversation"
@@ -304,7 +376,7 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
   );
   const workingTreeDiffQuery = useQuery(
     gitWorkingTreeDiffQueryOptions({
-      environmentId: activeThread?.environmentId ?? null,
+      environmentId: activeEnvironmentId,
       cwd: activeCwd ?? null,
       enabled: isGitRepo && diffTarget === "workingTree",
     }),
@@ -340,6 +412,8 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
     insertions: 0,
     deletions: 0,
   };
+  const gitInsertions = workingTreeSummary.insertions;
+  const gitDeletions = workingTreeSummary.deletions;
   const activeBranchLabel = gitStatusQuery.data?.branch ?? "Detached HEAD";
 
   const selectedPatch =
@@ -408,62 +482,54 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
     [activeCwd],
   );
 
+  const navigateDiffSearch = (
+    updateSearch: (previous: Record<string, unknown>) => Record<string, unknown>,
+  ) => {
+    if (activeThread) {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, activeThread.id)),
+        search: updateSearch,
+      });
+      return;
+    }
+
+    const draftIdForRoute = draftContext?.draftId ?? routeDraftId;
+    if (!draftIdForRoute) return;
+    void navigate({
+      to: "/draft/$draftId",
+      params: buildDraftThreadRouteParams(draftIdForRoute),
+      search: updateSearch,
+    });
+  };
+
   const selectTurn = (turnId: TurnId) => {
     if (!activeThread) return;
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, activeThread.id)),
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1", diffTurnId: turnId };
-      },
+    navigateDiffSearch((previous) => {
+      const rest = stripDiffSearchParams(previous);
+      return { ...rest, diff: "1", diffTurnId: turnId };
     });
   };
   const selectWorkingTree = () => {
-    if (!activeThread) return;
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, activeThread.id)),
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1" };
-      },
-    });
-  };
-  const selectWorkingTreeFile = (filePath: string) => {
-    if (!activeThread) return;
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, activeThread.id)),
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1", diffFilePath: filePath };
-      },
+    navigateDiffSearch((previous) => {
+      const rest = stripDiffSearchParams(previous);
+      return { ...rest, diff: "1" };
     });
   };
   const toggleWorkingTreeFile = (filePath: string) => {
-    if (!activeThread) return;
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, activeThread.id)),
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        if (selectedFilePath === filePath) {
-          return { ...rest, diff: "1" };
-        }
-        return { ...rest, diff: "1", diffFilePath: filePath };
-      },
+    navigateDiffSearch((previous) => {
+      const rest = stripDiffSearchParams(previous);
+      if (selectedFilePath === filePath) {
+        return { ...rest, diff: "1" };
+      }
+      return { ...rest, diff: "1", diffFilePath: filePath };
     });
   };
   const selectWholeConversation = () => {
     if (!activeThread) return;
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, activeThread.id)),
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1", diffTarget: "conversation" };
-      },
+    navigateDiffSearch((previous) => {
+      const rest = stripDiffSearchParams(previous);
+      return { ...rest, diff: "1", diffTarget: "conversation" };
     });
   };
   const updateTurnStripScrollState = useCallback(() => {
@@ -528,7 +594,7 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
   }, [selectedTurn?.turnId, selectedTurnId]);
 
   const headerRow = (
-    <>
+    <div className="flex min-w-0 items-center gap-2 px-2 py-2">
       <div className="relative min-w-0 flex-1 [-webkit-app-region:no-drag]">
         <button
           type="button"
@@ -582,10 +648,14 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
               }
             }}
           >
-            <Toggle aria-label="Stacked diff view" value="stacked">
+            <Toggle aria-label="Unified diff view" title="Unified diff view" value="stacked">
               <Rows3Icon className="size-3" />
             </Toggle>
-            <Toggle aria-label="Split diff view" value="split">
+            <Toggle
+              aria-label="Side-by-side diff view"
+              title="Side-by-side diff view"
+              value="split"
+            >
               <Columns2Icon className="size-3" />
             </Toggle>
           </ToggleGroup>
@@ -676,7 +746,24 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
           ))}
         </div>
       </div>
-    </>
+      {isGitRepo ? (
+        <div className="flex shrink-0 items-center gap-2">
+          {activeThreadRef ? (
+            <GitActionsControl gitCwd={activeCwd ?? null} activeThreadRef={activeThreadRef} />
+          ) : null}
+          {gitInsertions > 0 || gitDeletions > 0 ? (
+            <div className="flex shrink-0 items-center gap-1 text-[11px] font-medium">
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-emerald-400">
+                +{gitInsertions.toLocaleString()}
+              </span>
+              <span className="rounded-full border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-rose-400">
+                -{gitDeletions.toLocaleString()}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 
   return (
@@ -684,9 +771,13 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
       mode={mode}
       sidecar="diff"
       header={headerRow}
+      {...(openSidecars ? { openSidecars } : {})}
+      {...(availableSidecars ? { availableSidecars } : {})}
       {...(onSelectSidecar ? { onSelectSidecar } : {})}
+      {...(onAddSidecar ? { onAddSidecar } : {})}
+      {...(onCloseSidecarTab ? { onCloseSidecarTab } : {})}
     >
-      {!activeThread ? (
+      {!activeThread && !draftContext ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
         </div>
@@ -701,9 +792,19 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
       ) : diffTarget === "workingTree" && workingTreePreviewFiles.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="space-y-1.5 px-3 py-3">
+            {selectedFilePath ? (
+              <button
+                type="button"
+                className="mb-1 inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                onClick={selectWorkingTree}
+              >
+                <ChevronLeftIcon className="size-3" />
+                Show all files
+              </button>
+            ) : null}
             {workingTreePreviewFiles.map((fileDiff) => {
               const filePath = resolveFileDiffPath(fileDiff);
-              const themedFileKey = `${buildFileDiffRenderKey(fileDiff)}:${resolvedTheme}`;
+              const themedFileKey = `${buildFileDiffRenderKey(fileDiff)}:${resolvedTheme}:${diffRenderMode}`;
               const fileSummary = workingTreeStatusByPath.get(filePath);
               const isExpanded = selectedFilePath === filePath;
 
@@ -745,7 +846,7 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
                       <FileDiff
                         fileDiff={fileDiff}
                         options={{
-                          diffStyle: "unified",
+                          diffStyle: resolveDiffStyle(diffRenderMode),
                           lineDiffType: "none",
                           overflow: diffWordWrap ? "wrap" : "scroll",
                           theme: resolveDiffThemeName(resolvedTheme),
@@ -786,7 +887,7 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
                     {diffTarget === "workingTree" && workingTreeFiles.length === 0
                       ? "Working tree is clean."
                       : shouldShowWorkingTreeEmptyHint
-                        ? "Changed files are present, but Git returned no patch text. Untracked-only changes will appear after they are staged or committed."
+                        ? "Changed files are present, but Git returned no renderable patch text."
                         : hasNoNetChanges
                           ? "No net changes in this selection."
                           : "No patch available for this selection."}
@@ -801,10 +902,15 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
                   intersectionObserverMargin: 1200,
                 }}
               >
+                {renderablePatch.notice ? (
+                  <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                    {renderablePatch.notice}
+                  </div>
+                ) : null}
                 {renderableFiles.map((fileDiff) => {
                   const filePath = resolveFileDiffPath(fileDiff);
                   const fileKey = buildFileDiffRenderKey(fileDiff);
-                  const themedFileKey = `${fileKey}:${resolvedTheme}`;
+                  const themedFileKey = `${fileKey}:${resolvedTheme}:${diffRenderMode}`;
                   return (
                     <div
                       key={themedFileKey}
@@ -824,7 +930,7 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
                       <FileDiff
                         fileDiff={fileDiff}
                         options={{
-                          diffStyle: diffRenderMode === "split" ? "split" : "unified",
+                          diffStyle: resolveDiffStyle(diffRenderMode),
                           lineDiffType: "none",
                           overflow: diffWordWrap ? "wrap" : "scroll",
                           theme: resolveDiffThemeName(resolvedTheme),
@@ -840,16 +946,21 @@ export default function DiffPanel({ mode = "inline", onSelectSidecar }: DiffPane
               <div className="h-full overflow-auto p-2">
                 <div className="space-y-2">
                   <p className="text-[11px] text-muted-foreground/75">{renderablePatch.reason}</p>
-                  <pre
+                  <div
                     className={cn(
-                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
-                      diffWordWrap
-                        ? "overflow-auto whitespace-pre-wrap wrap-break-word"
-                        : "overflow-auto",
+                      "max-h-[72vh] overflow-auto rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed",
+                      diffWordWrap ? "whitespace-pre-wrap wrap-break-word" : "whitespace-pre",
                     )}
                   >
-                    {renderablePatch.text}
-                  </pre>
+                    {renderablePatch.text.split(/\r?\n/g).map((line, index) => (
+                      <div
+                        key={`${index}:${line}`}
+                        className={cn("-mx-3 px-3", getRawDiffLineClassName(line))}
+                      >
+                        {line || " "}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

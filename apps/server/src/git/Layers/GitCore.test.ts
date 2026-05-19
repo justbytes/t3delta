@@ -302,6 +302,61 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(result.truncated).toBe(false);
       }),
     );
+
+    it.effect("does not append untracked patches after a truncated working tree diff", () =>
+      Effect.gen(function* () {
+        const seenCommands: string[] = [];
+        const core = yield* makeIsolatedGitCore((input) => {
+          const command = input.args.join(" ");
+          seenCommands.push(command);
+
+          if (command === "rev-parse --verify HEAD") {
+            return Effect.succeed({
+              code: 0,
+              stdout: "abc123\n",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            });
+          }
+
+          if (command === "diff --patch --minimal HEAD") {
+            return Effect.succeed({
+              code: 0,
+              stdout: "diff --git a/README.md b/README.md\n",
+              stderr: "",
+              stdoutTruncated: true,
+              stderrTruncated: false,
+            });
+          }
+
+          if (command === "ls-files --others --exclude-standard -z") {
+            return Effect.succeed({
+              code: 0,
+              stdout: "untracked.txt\0",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            });
+          }
+
+          return Effect.fail(
+            new GitCommandError({
+              operation: input.operation,
+              command: `git ${command}`,
+              cwd: input.cwd,
+              detail: "unexpected git command in truncated diff test",
+            }),
+          );
+        });
+
+        const result = yield* core.readWorkingTreeDiff({ cwd: "/virtual/repo" });
+        expect(result.diff).toBe("diff --git a/README.md b/README.md\n\n\n[truncated]");
+        expect(seenCommands).not.toContain(
+          "diff --no-index --patch --minimal -- /dev/null untracked.txt",
+        );
+      }),
+    );
   });
 
   // ── listGitBranches ──
@@ -1679,6 +1734,58 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* writeTextFile(path.join(tmp, "README.md"), "updated\n");
         const dirty = yield* core.statusDetails(tmp);
         expect(dirty.hasWorkingTreeChanges).toBe(true);
+      }),
+    );
+
+    it.effect("includes untracked file stats in status details", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "untracked.txt"), "first\nsecond\n");
+
+        const status = yield* core.statusDetails(tmp);
+        expect(status.hasWorkingTreeChanges).toBe(true);
+        expect(status.workingTree.files).toContainEqual({
+          path: "untracked.txt",
+          insertions: 2,
+          deletions: 0,
+        });
+        expect(status.workingTree.insertions).toBeGreaterThanOrEqual(2);
+      }),
+    );
+
+    it.effect("includes untracked files in working tree diff", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "untracked.txt"), "first\nsecond\n");
+
+        const result = yield* core.readWorkingTreeDiff({ cwd: tmp });
+        expect(result.diff).toContain("diff --git");
+        expect(result.diff).toContain("untracked.txt");
+        expect(result.diff).toContain("+first");
+        expect(result.diff).toContain("+second");
+      }),
+    );
+
+    it.effect("combines tracked and untracked working tree diffs", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "README.md"), "# test\nupdated\n");
+        yield* writeTextFile(path.join(tmp, "untracked.txt"), "new file\n");
+
+        const result = yield* core.readWorkingTreeDiff({ cwd: tmp });
+        expect(result.diff).toContain("README.md");
+        expect(result.diff).toContain("+updated");
+        expect(result.diff).toContain("untracked.txt");
+        expect(result.diff).toContain("+new file");
       }),
     );
 

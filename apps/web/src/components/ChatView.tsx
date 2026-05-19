@@ -795,7 +795,6 @@ export default function ChatView(props: ChatViewProps) {
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const workspaceToolOpen = rawSearch.diff === "1";
   const effectiveWorkspaceToolOpen = workspaceToolOpen;
-  const workspaceToolMode = rawSearch.sidecar === "explorer" ? "explorer" : "diff";
   const migrateThreadWorkspaceState = useUiStateStore((state) => state.migrateThreadWorkspaceState);
   const threadWorkspace = useUiStateStore(
     useShallow(
@@ -1528,6 +1527,12 @@ export default function ChatView(props: ChatViewProps) {
       : (storeServerTerminalLaunchContext ?? null);
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  const canShowWorkspaceDiff = isServerThread && isGitRepo;
+  const canShowWorkspaceExplorer = gitCwd !== null;
+  const workspaceToolMode =
+    rawSearch.sidecar === "explorer" || (!canShowWorkspaceDiff && canShowWorkspaceExplorer)
+      ? "explorer"
+      : "diff";
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -1626,12 +1631,6 @@ export default function ChatView(props: ChatViewProps) {
     onDiffPanelOpen,
     threadId,
   ]);
-  useEffect(() => {
-    if (!effectiveWorkspaceToolOpen || workspaceToolMode !== "diff" || isGitRepo) {
-      return;
-    }
-    onOpenExplorer();
-  }, [effectiveWorkspaceToolOpen, isGitRepo, onOpenExplorer, workspaceToolMode]);
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -1666,11 +1665,6 @@ export default function ChatView(props: ChatViewProps) {
     workspaceToolOpen,
   ]);
   const onToggleWorkspaceTool = useCallback(() => {
-    if (!isGitRepo && workspaceToolMode === "diff") {
-      onOpenExplorer();
-      return;
-    }
-
     if (workspaceToolMode === "explorer") {
       if (effectiveWorkspaceToolOpen) {
         if (draftId) {
@@ -1715,7 +1709,6 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     draftId,
     environmentId,
-    isGitRepo,
     navigate,
     onOpenExplorer,
     onToggleDiff,
@@ -3465,60 +3458,53 @@ export default function ChatView(props: ChatViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-      {/* Top bar */}
-      <header
-        className={cn(
-          "border-b border-border px-3 sm:px-5",
-          isElectron
-            ? cn(
-                "drag-region flex h-[52px] items-center wco:h-[env(titlebar-area-height)]",
-                reserveTitleBarControlInset &&
-                  "wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
-              )
-            : "py-2 sm:py-3",
-        )}
-      >
-        <ChatHeader
-          activeThreadEnvironmentId={activeThread.environmentId}
-          activeThreadId={activeThread.id}
-          {...(routeKind === "draft" && draftId ? { draftId } : {})}
-          activeThreadTitle={activeThread.title}
-          activeProjectName={activeProject?.name}
-          isGitRepo={isGitRepo}
-          openInCwd={gitCwd}
-          activeProjectScripts={activeProject?.scripts}
-          preferredScriptId={
-            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-          }
-          keybindings={keybindings}
-          availableEditors={availableEditors}
-          centerPaneMode={centerPaneMode}
-          terminalAvailable={activeProject !== undefined}
-          terminalOpen={terminalState.terminalOpen}
-          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-          diffToggleShortcutLabel={diffPanelShortcutLabel}
-          workspaceToolMode={
-            !isGitRepo && workspaceToolMode === "diff" ? "explorer" : workspaceToolMode
-          }
-          gitCwd={gitCwd}
-          workspaceToolOpen={effectiveWorkspaceToolOpen}
-          onRunProjectScript={runProjectScript}
-          onAddProjectScript={saveProjectScript}
-          onUpdateProjectScript={updateProjectScript}
-          onDeleteProjectScript={deleteProjectScript}
-          onOpenCenterPaneAgent={onSwitchCenterPaneToAgent}
-          onOpenCenterPaneEditor={onSwitchCenterPaneToEditor}
-          onToggleTerminal={toggleTerminalVisibility}
-          onToggleWorkspaceTool={onToggleWorkspaceTool}
-          onOpenDiff={onOpenDiff}
-          onOpenExplorer={onOpenExplorer}
-        />
-      </header>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
       <div
         className="flex min-h-0 min-w-0 flex-1 flex-col"
         style={workspaceSidecarInset ? { paddingRight: workspaceSidecarInset } : undefined}
       >
+        {/* Top bar */}
+        <header
+          className={cn(
+            "border-b border-border/60 px-3 sm:px-5",
+            isElectron
+              ? cn(
+                  "drag-region flex h-[52px] items-center wco:h-[env(titlebar-area-height)]",
+                  reserveTitleBarControlInset &&
+                    "wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
+                )
+              : "py-2 sm:py-3",
+          )}
+        >
+          <ChatHeader
+            activeThreadTitle={activeThread.title}
+            activeProjectName={activeProject?.name}
+            isGitRepo={isGitRepo}
+            openInCwd={gitCwd}
+            activeProjectScripts={activeProject?.scripts}
+            preferredScriptId={
+              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+            }
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            centerPaneMode={centerPaneMode}
+            terminalAvailable={activeProject !== undefined}
+            terminalOpen={terminalState.terminalOpen}
+            terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+            diffToggleShortcutLabel={diffPanelShortcutLabel}
+            canShowWorkspaceDiff={canShowWorkspaceDiff}
+            workspaceToolMode={workspaceToolMode}
+            workspaceToolOpen={effectiveWorkspaceToolOpen}
+            onRunProjectScript={runProjectScript}
+            onAddProjectScript={saveProjectScript}
+            onUpdateProjectScript={updateProjectScript}
+            onDeleteProjectScript={deleteProjectScript}
+            onOpenCenterPaneAgent={onSwitchCenterPaneToAgent}
+            onOpenCenterPaneEditor={onSwitchCenterPaneToEditor}
+            onToggleTerminal={toggleTerminalVisibility}
+            onToggleWorkspaceTool={onToggleWorkspaceTool}
+          />
+        </header>
         {/* Error banner */}
         <ProviderStatusBanner status={activeProviderStatus} />
         <ThreadErrorBanner
@@ -3560,7 +3546,6 @@ export default function ChatView(props: ChatViewProps) {
                 environmentId={activeThread.environmentId}
                 resolvedTheme={resolvedTheme}
                 threadKey={activeThreadKey}
-                onOpenDiff={onOpenDiff}
                 onOpenExplorer={onOpenExplorer}
                 onSwitchToAgent={onSwitchCenterPaneToAgent}
                 onToggleTerminal={toggleTerminalVisibility}

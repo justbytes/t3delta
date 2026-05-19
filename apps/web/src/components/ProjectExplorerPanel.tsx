@@ -398,7 +398,11 @@ function ExplorerFileNode(
 
 export default function ProjectExplorerPanel(props: {
   mode: WorkspaceSidecarLayoutMode;
+  openSidecars?: ReadonlyArray<WorkspaceSidecarMode>;
+  availableSidecars?: ReadonlyArray<WorkspaceSidecarMode>;
   onSelectSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  onAddSidecar?: (sidecar: WorkspaceSidecarMode) => void;
+  onCloseSidecarTab?: (sidecar: WorkspaceSidecarMode) => void;
   source?: {
     environmentId: EnvironmentId;
     threadId: ThreadId;
@@ -848,7 +852,11 @@ export default function ProjectExplorerPanel(props: {
       <WorkspaceSidecarShell
         mode={props.mode}
         sidecar="explorer"
+        {...(props.openSidecars ? { openSidecars: props.openSidecars } : {})}
+        {...(props.availableSidecars ? { availableSidecars: props.availableSidecars } : {})}
         {...(props.onSelectSidecar ? { onSelectSidecar: props.onSelectSidecar } : {})}
+        {...(props.onAddSidecar ? { onAddSidecar: props.onAddSidecar } : {})}
+        {...(props.onCloseSidecarTab ? { onCloseSidecarTab: props.onCloseSidecarTab } : {})}
       >
         {!activeEnvironmentId || !activeCwd ? (
           <div className="flex flex-1 items-center justify-center p-5">
