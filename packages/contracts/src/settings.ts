@@ -307,6 +307,11 @@ export type CodexSettings = typeof CodexSettings.Type;
 
 export const HermesSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  gatewayMode: Schema.Literals(["managed", "external"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("managed" as const)),
+  ),
+  binaryPath: makeBinaryPathSetting("hermes"),
+  hermesHomeRoot: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type HermesSettings = typeof HermesSettings.Type;
@@ -407,8 +412,8 @@ export const ServerSettings = Schema.Struct({
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
-        provider: "hermes" as const,
-        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.hermes,
+        provider: "codex" as const,
+        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
       }),
     ),
   ),
@@ -503,6 +508,9 @@ const CodexSettingsPatch = Schema.Struct({
 
 const HermesSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
+  gatewayMode: Schema.optionalKey(Schema.Literals(["managed", "external"])),
+  binaryPath: Schema.optionalKey(Schema.String),
+  hermesHomeRoot: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 

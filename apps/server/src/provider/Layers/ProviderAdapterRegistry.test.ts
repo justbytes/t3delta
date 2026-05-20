@@ -10,6 +10,7 @@ import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts"
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
 import { ProviderUnsupportedError } from "../Errors.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { HermesGatewayManager } from "../../hermesGatewayManager.ts";
 
 const fakeCodexAdapter: CodexAdapterShape = {
   provider: "codex",
@@ -28,9 +29,18 @@ const fakeCodexAdapter: CodexAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const fakeHermesGatewayManager = {
+  acquire: vi.fn(),
+  release: vi.fn(() => Effect.void),
+  stopAll: Effect.void,
+};
+
 const layer = it.layer(
   Layer.mergeAll(
-    Layer.provide(ProviderAdapterRegistryLive, Layer.succeed(CodexAdapter, fakeCodexAdapter)),
+    ProviderAdapterRegistryLive.pipe(
+      Layer.provide(Layer.succeed(CodexAdapter, fakeCodexAdapter)),
+      Layer.provide(Layer.succeed(HermesGatewayManager, fakeHermesGatewayManager)),
+    ),
     NodeServices.layer,
   ),
 );

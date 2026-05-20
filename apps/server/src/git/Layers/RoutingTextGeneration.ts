@@ -4,12 +4,16 @@
  * request input.
  *
  * When `modelSelection.provider` is `"claudeAgent"` the request is forwarded to
- * the Claude layer; for any other value (including the default `undefined`) it
- * falls through to the Codex layer.
+ * the Claude layer; Hermes currently does not expose a native text generation
+ * implementation for these server-side helper tasks, so it falls back to Codex.
  *
  * @module RoutingTextGeneration
  */
 import { Effect, Layer, Context } from "effect";
+import {
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  type ModelSelection,
+} from "@t3delta/contracts";
 
 import {
   TextGeneration,
@@ -41,13 +45,35 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
 
   const route = (provider?: TextGenerationProvider): TextGenerationShape =>
     provider === "claudeAgent" ? claude : codex;
+  const routeModelSelection = (modelSelection: ModelSelection): ModelSelection =>
+    modelSelection.provider === "hermes"
+      ? {
+          provider: "codex",
+          model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+        }
+      : modelSelection;
 
   return {
     generateCommitMessage: (input) =>
-      route(input.modelSelection.provider).generateCommitMessage(input),
-    generatePrContent: (input) => route(input.modelSelection.provider).generatePrContent(input),
-    generateBranchName: (input) => route(input.modelSelection.provider).generateBranchName(input),
-    generateThreadTitle: (input) => route(input.modelSelection.provider).generateThreadTitle(input),
+      route(input.modelSelection.provider).generateCommitMessage({
+        ...input,
+        modelSelection: routeModelSelection(input.modelSelection),
+      }),
+    generatePrContent: (input) =>
+      route(input.modelSelection.provider).generatePrContent({
+        ...input,
+        modelSelection: routeModelSelection(input.modelSelection),
+      }),
+    generateBranchName: (input) =>
+      route(input.modelSelection.provider).generateBranchName({
+        ...input,
+        modelSelection: routeModelSelection(input.modelSelection),
+      }),
+    generateThreadTitle: (input) =>
+      route(input.modelSelection.provider).generateThreadTitle({
+        ...input,
+        modelSelection: routeModelSelection(input.modelSelection),
+      }),
   } satisfies TextGenerationShape;
 });
 

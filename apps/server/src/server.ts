@@ -41,6 +41,7 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
+import { HermesGatewayManagerLive } from "./hermesGatewayManager.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
@@ -155,7 +156,9 @@ const ProviderLayerLive = Layer.unwrap(
     );
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
+      Layer.provide(HermesGatewayManagerLive),
       Layer.provideMerge(ProviderSessionDirectoryLayerLive),
+      Layer.provideMerge(ServerSettingsLive),
     );
     return makeProviderServiceLive(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,

@@ -97,7 +97,13 @@ function createBaseServerConfig(): ServerConfig {
       defaultThreadEnvMode: "local" as const,
       textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
       providers: {
-        hermes: { enabled: true, customModels: [] },
+        hermes: {
+          enabled: true,
+          gatewayMode: "managed",
+          binaryPath: "",
+          hermesHomeRoot: "",
+          customModels: [],
+        },
         codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
         claudeAgent: { enabled: true, binaryPath: "", customModels: [], launchArgs: "" },
       },

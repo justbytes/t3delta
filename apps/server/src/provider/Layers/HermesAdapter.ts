@@ -9,11 +9,12 @@ import {
 import { Effect, PubSub, Ref, Stream } from "effect";
 
 import { HermesClient, parseSseEvents } from "../../hermesClient.ts";
-import { loadHermesRelayConfig } from "../../hermesEnv.ts";
+import { HermesGatewayManager } from "../../hermesGatewayManager.ts";
 import { ProviderAdapterRequestError, ProviderAdapterSessionNotFoundError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 
 type HermesSessionState = ProviderSession & {
+  readonly client: HermesClient;
   readonly conversationId?: string;
   readonly responseId?: string;
 };
@@ -71,11 +72,7 @@ export const makeHermesAdapter = Effect.gen(function* () {
     PubSub.unbounded<ProviderRuntimeEvent>(),
     PubSub.shutdown,
   );
-  const config = loadHermesRelayConfig();
-  const client = new HermesClient({
-    gatewayUrl: config.gatewayUrl,
-    ...(config.apiKey ? { apiKey: config.apiKey } : {}),
-  });
+  const gatewayManager = yield* HermesGatewayManager;
 
   const publish = (event: ProviderRuntimeEvent) =>
     PubSub.publish(events, event).pipe(Effect.asVoid);
@@ -100,11 +97,23 @@ export const makeHermesAdapter = Effect.gen(function* () {
     startSession: (input) =>
       Effect.gen(function* () {
         const createdAt = now();
+        const resolvedCwd = input.cwd ?? process.cwd();
+        const gateway = yield* gatewayManager
+          .acquire({
+            threadId: input.threadId,
+            cwd: resolvedCwd,
+          })
+          .pipe(Effect.mapError((cause) => requestError("gateway.acquire", cause)));
+        const client = new HermesClient({
+          gatewayUrl: gateway.gatewayUrl,
+          ...(gateway.apiKey ? { apiKey: gateway.apiKey } : {}),
+        });
         const session: HermesSessionState = {
           provider: "hermes",
           status: "ready",
           runtimeMode: input.runtimeMode,
-          ...(input.cwd ? { cwd: input.cwd } : {}),
+          cwd: resolvedCwd,
+          client,
           model: input.modelSelection?.model,
           threadId: input.threadId,
           createdAt,
@@ -162,9 +171,55 @@ export const makeHermesAdapter = Effect.gen(function* () {
           payload: { itemType: "assistant_message", status: "inProgress", title: "Hermes" },
         });
 
+        const markTurnFailed = (error: ProviderAdapterRequestError) =>
+          Effect.gen(function* () {
+            const message = error.detail || error.message;
+            yield* updateSession(input.threadId, (current) => ({
+              ...current,
+              status: "ready",
+              activeTurnId: undefined,
+              lastError: message,
+              updatedAt: now(),
+            }));
+            yield* publish({
+              eventId: eventId(),
+              provider: "hermes",
+              threadId: input.threadId,
+              turnId: activeTurnId,
+              itemId: assistantItemId,
+              createdAt: now(),
+              type: "runtime.error",
+              payload: { message, class: "provider_error" },
+            });
+            yield* publish({
+              eventId: eventId(),
+              provider: "hermes",
+              threadId: input.threadId,
+              turnId: activeTurnId,
+              itemId: assistantItemId,
+              createdAt: now(),
+              type: "item.completed",
+              payload: {
+                itemType: "assistant_message",
+                status: "failed",
+                title: "Hermes",
+                detail: message,
+              },
+            });
+            yield* publish({
+              eventId: eventId(),
+              provider: "hermes",
+              threadId: input.threadId,
+              turnId: activeTurnId,
+              createdAt: now(),
+              type: "turn.completed",
+              payload: { state: "failed", errorMessage: message },
+            });
+          });
+
         yield* Effect.tryPromise({
           try: async () => {
-            const response = await client.proxy("/v1/responses", {
+            const response = await session.client.proxy("/v1/responses", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
@@ -233,6 +288,7 @@ export const makeHermesAdapter = Effect.gen(function* () {
               });
             }),
           ),
+          Effect.catch((error) => markTurnFailed(error).pipe(Effect.andThen(Effect.fail(error)))),
         );
 
         return { threadId: input.threadId, turnId: activeTurnId };
@@ -250,14 +306,14 @@ export const makeHermesAdapter = Effect.gen(function* () {
         const next = new Map(current);
         next.delete(threadId);
         return next;
-      }),
+      }).pipe(Effect.andThen(gatewayManager.release(threadId))),
     listSessions: () =>
       Ref.get(sessions).pipe(Effect.map((current) => Array.from(current.values()))),
     hasSession: (threadId) =>
       Ref.get(sessions).pipe(Effect.map((current) => current.has(threadId))),
     readThread: (threadId) => Effect.succeed({ threadId, turns: [] }),
     rollbackThread: (threadId) => Effect.succeed({ threadId, turns: [] }),
-    stopAll: () => Ref.set(sessions, new Map()),
+    stopAll: () => Ref.set(sessions, new Map()).pipe(Effect.andThen(gatewayManager.stopAll)),
     streamEvents: Stream.fromPubSub(events),
   };
 
