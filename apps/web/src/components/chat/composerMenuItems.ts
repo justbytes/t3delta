@@ -4,11 +4,13 @@ import type {
   ServerProvider,
   ServerProviderSkill,
 } from "@t3delta/contracts";
+import type { HermesSkillCategorySettings } from "@t3delta/contracts/settings";
 
 import type { ComposerTrigger } from "../../composer-logic";
 import {
-  formatProviderSkillCategoryLabel,
   normalizeProviderSkillCategory,
+  resolveProviderSkillCategoryId,
+  resolveProviderSkillCategoryLabel,
 } from "../../providerSkillCategories";
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
 import { searchProviderSkills } from "../../providerSkillSearch";
@@ -30,13 +32,18 @@ function buildSkillCategoryItems(
   provider: ProviderKind,
   skills: ReadonlyArray<ServerProviderSkill>,
   query: string,
+  skillCategorySettings: HermesSkillCategorySettings | undefined,
 ): ComposerCommandItem[] {
   const normalizedQuery = query.trim().toLowerCase();
   const categories = new Map<string, number>();
   for (const skill of skills) {
     if (!skill.enabled) continue;
-    const category = normalizeProviderSkillCategory(skill.scope);
+    const category = resolveProviderSkillCategoryId(skill, skillCategorySettings);
     categories.set(category, (categories.get(category) ?? 0) + 1);
+  }
+  for (const category of skillCategorySettings?.categories ?? []) {
+    const categoryId = normalizeProviderSkillCategory(category.id);
+    if (!categories.has(categoryId)) categories.set(categoryId, 0);
   }
 
   return Array.from(categories.entries())
@@ -45,7 +52,7 @@ function buildSkillCategoryItems(
       type: "skill-category" as const,
       provider,
       category,
-      label: formatProviderSkillCategoryLabel(category),
+      label: resolveProviderSkillCategoryLabel(category, skillCategorySettings),
       description: `${count.toLocaleString()} ${count === 1 ? "skill" : "skills"}`,
     }))
     .filter((item) => {
@@ -92,6 +99,7 @@ export function buildComposerMenuItems(input: {
   workspaceEntries: ReadonlyArray<ProjectEntry>;
   selectedProvider: ProviderKind;
   selectedProviderStatus: ServerProvider | undefined;
+  skillCategorySettings?: HermesSkillCategorySettings | undefined;
   searchableModelOptions: ReadonlyArray<SearchableModelOption>;
 }): ComposerCommandItem[] {
   const {
@@ -99,6 +107,7 @@ export function buildComposerMenuItems(input: {
     workspaceEntries,
     selectedProvider,
     selectedProviderStatus,
+    skillCategorySettings,
     searchableModelOptions,
   } = input;
   if (!composerTrigger) return [];
@@ -162,12 +171,18 @@ export function buildComposerMenuItems(input: {
     const categoryQuery = splitSkillCategoryQuery(composerTrigger.query);
     if (categoryQuery) {
       const categorySkills = skills.filter(
-        (skill) => normalizeProviderSkillCategory(skill.scope) === categoryQuery.category,
+        (skill) =>
+          resolveProviderSkillCategoryId(skill, skillCategorySettings) === categoryQuery.category,
       );
       return buildSkillItems(selectedProvider, categorySkills, categoryQuery.query);
     }
     return [
-      ...buildSkillCategoryItems(selectedProvider, skills, composerTrigger.query),
+      ...buildSkillCategoryItems(
+        selectedProvider,
+        skills,
+        composerTrigger.query,
+        skillCategorySettings,
+      ),
       ...buildSkillItems(selectedProvider, skills, composerTrigger.query),
     ];
   }

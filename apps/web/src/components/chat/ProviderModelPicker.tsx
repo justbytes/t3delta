@@ -37,7 +37,7 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   cursor: CursorIcon,
 };
 
-function HermesIcon({ className, "aria-hidden": ariaHidden }: Parameters<Icon>[0]) {
+export function HermesIcon({ className, "aria-hidden": ariaHidden }: Parameters<Icon>[0]) {
   return (
     <img
       alt=""

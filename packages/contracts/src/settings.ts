@@ -88,6 +88,22 @@ export const EditorLanguageServerPreference = Schema.Struct({
 });
 export type EditorLanguageServerPreference = typeof EditorLanguageServerPreference.Type;
 
+export const HermesSkillCategory = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+});
+export type HermesSkillCategory = typeof HermesSkillCategory.Type;
+
+export const HermesSkillCategorySettings = Schema.Struct({
+  categories: Schema.Array(HermesSkillCategory).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  assignments: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+});
+export type HermesSkillCategorySettings = typeof HermesSkillCategorySettings.Type;
+
 export const CodeRuleSeverity = Schema.Literals(["off", "warning", "error"]);
 export type CodeRuleSeverity = typeof CodeRuleSeverity.Type;
 
@@ -259,6 +275,9 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
   enableProjectDiagnostics: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  hermesSkillCategories: HermesSkillCategorySettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),

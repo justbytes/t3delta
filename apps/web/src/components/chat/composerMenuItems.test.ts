@@ -143,6 +143,24 @@ describe("buildComposerMenuItems", () => {
     expect(items.map((item) => item.label)).toEqual(["GitHub Pr Workflow"]);
   });
 
+  it("uses custom skill category labels and assignments", () => {
+    const items = buildComposerMenuItems({
+      composerTrigger: skillTrigger("source-control/"),
+      selectedProvider: "hermes",
+      selectedProviderStatus: hermesProviderStatus,
+      skillCategorySettings: {
+        categories: [{ id: "source-control", label: "Source Control" }],
+        assignments: {
+          "github-issues": "source-control",
+        },
+      },
+      searchableModelOptions: [],
+      workspaceEntries: [],
+    });
+
+    expect(items.map((item) => item.label)).toEqual(["GitHub Issues"]);
+  });
+
   it("does not mix generic T3 slash commands into the Hermes slash menu", () => {
     const items = buildComposerMenuItems({
       composerTrigger: slashTrigger(""),

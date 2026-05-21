@@ -52,6 +52,14 @@ function normalizeClientSettings(settings: Partial<ClientSettings>): ClientSetti
       ...DEFAULT_CLIENT_SETTINGS.editorLanguageServerPreferences,
       ...(settings.editorLanguageServerPreferences ?? {}),
     },
+    hermesSkillCategories: {
+      ...DEFAULT_CLIENT_SETTINGS.hermesSkillCategories,
+      ...settings.hermesSkillCategories,
+      assignments: {
+        ...DEFAULT_CLIENT_SETTINGS.hermesSkillCategories.assignments,
+        ...settings.hermesSkillCategories?.assignments,
+      },
+    },
   };
 }
 

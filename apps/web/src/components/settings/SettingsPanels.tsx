@@ -472,6 +472,12 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Delete confirmation"]
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
+      ...(!Equal.equals(
+        settings.hermesSkillCategories,
+        DEFAULT_UNIFIED_SETTINGS.hermesSkillCategories,
+      )
+        ? ["Hermes skill categories"]
+        : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
     ],
     [
@@ -483,6 +489,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.hermesSkillCategories,
       settings.timestampFormat,
       theme,
     ],

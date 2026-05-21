@@ -719,6 +719,7 @@ export const ChatComposer = memo(
           workspaceEntries,
           selectedProvider,
           selectedProviderStatus,
+          skillCategorySettings: settings.hermesSkillCategories,
           searchableModelOptions,
         }),
       [
@@ -726,6 +727,7 @@ export const ChatComposer = memo(
         searchableModelOptions,
         selectedProvider,
         selectedProviderStatus,
+        settings.hermesSkillCategories,
         workspaceEntries,
       ],
     );
