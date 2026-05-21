@@ -1,10 +1,24 @@
 import type { ServerProviderSkill } from "@t3delta/contracts";
 
+const TITLE_CASE_OVERRIDES: Readonly<Record<string, string>> = {
+  github: "GitHub",
+  ios: "iOS",
+  macos: "macOS",
+  mcp: "MCP",
+  mlops: "MLOps",
+  ui: "UI",
+};
+
 function titleCaseWords(value: string): string {
   return value
     .split(/[\s:_-]+/)
     .filter((segment) => segment.length > 0)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .map((segment) => {
+      const normalized = segment.toLowerCase();
+      return (
+        TITLE_CASE_OVERRIDES[normalized] ?? `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`
+      );
+    })
     .join(" ");
 }
 

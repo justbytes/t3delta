@@ -2,6 +2,8 @@ import { Context } from "effect";
 import type { Effect, Scope } from "effect";
 
 export interface ProviderSessionReaperShape {
+  readonly reconcileStaleActiveTurns: () => Effect.Effect<void, never>;
+
   /**
    * Start the background provider session reaper within the provided scope.
    */

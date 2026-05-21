@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clearHermesSessionRuntimeState,
   createEmptyHermesSession,
   createInitialHermesChatState,
   deleteHermesSession,
@@ -18,6 +19,45 @@ import {
 import type { HermesChatState, HermesSession } from "./hermesChatTypes";
 
 describe("Hermes chat state", () => {
+  it("clears stale runtime state from persisted Hermes sessions after app restart", () => {
+    const runningSession: HermesSession = {
+      ...createEmptyHermesSession("session-stale", "2026-05-14T10:00:00.000Z"),
+      isRunning: true,
+      activeStartedAt: "2026-05-14T10:00:00.000Z",
+      activeAssistantMessageId: "assistant-stale",
+      messages: [
+        {
+          id: "assistant-stale",
+          role: "assistant" as const,
+          text: "partial",
+          createdAt: "2026-05-14T10:00:01.000Z",
+          streaming: true,
+        },
+      ],
+      toolCalls: [
+        {
+          id: "tool-stale",
+          name: "terminal",
+          status: "running",
+          createdAt: "2026-05-14T10:00:02.000Z",
+          description: "Running terminal command",
+          filePaths: [],
+        },
+      ],
+    };
+
+    const cleared = clearHermesSessionRuntimeState(runningSession, { interrupted: true });
+
+    expect(cleared.isRunning).toBe(false);
+    expect(cleared.activeStartedAt).toBeUndefined();
+    expect(cleared.activeAssistantMessageId).toBeUndefined();
+    expect(cleared.messages[0]).toMatchObject({
+      streaming: false,
+      interrupted: true,
+    });
+    expect(cleared.toolCalls[0]).toMatchObject({ status: "completed" });
+  });
+
   it("submits a user message optimistically and auto-titles the session", () => {
     let state = createInitialHermesChatState();
     state = setDraft(state, state.activeSessionId, "List the files in this project");

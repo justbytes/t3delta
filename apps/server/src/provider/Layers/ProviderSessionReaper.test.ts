@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProjectId, ThreadId, TurnId } from "@t3delta/contracts";
+import { ProjectId, ThreadId, TurnId, type ProviderSession } from "@t3delta/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -120,6 +120,7 @@ describe("ProviderSessionReaper", () => {
     readonly stopSessionImplementation?: (input: {
       readonly threadId: ThreadId;
     }) => ReturnType<ProviderServiceShape["stopSession"]>;
+    readonly liveSessions?: ReadonlyArray<ProviderSession>;
   }) {
     const stoppedThreadIds = new Set<ThreadId>();
     const stopSession = vi.fn<ProviderServiceShape["stopSession"]>(
@@ -138,16 +139,17 @@ describe("ProviderSessionReaper", () => {
       respondToRequest: () => unsupported(),
       respondToUserInput: () => unsupported(),
       stopSession,
-      listSessions: () => Effect.succeed([]),
+      listSessions: () => Effect.succeed([...(input.liveSessions ?? [])]),
       getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.empty,
     };
 
+    const dispatch = vi.fn<OrchestrationEngineShape["dispatch"]>(() => Effect.void as never);
     const orchestrationEngine: OrchestrationEngineShape = {
       getReadModel: () => Effect.succeed(input.readModel),
       readEvents: () => Stream.empty,
-      dispatch: () => unsupported(),
+      dispatch,
       streamDomainEvents: Stream.empty,
     };
 
@@ -169,7 +171,7 @@ describe("ProviderSessionReaper", () => {
     );
 
     runtime = ManagedRuntime.make(layer);
-    return { stopSession, stoppedThreadIds };
+    return { dispatch, stopSession, stoppedThreadIds };
   }
 
   it("reaps stale persisted sessions without active turns", async () => {
@@ -190,6 +192,16 @@ describe("ProviderSessionReaper", () => {
           },
         },
       ]),
+      liveSessions: [
+        {
+          provider: "claudeAgent",
+          status: "running",
+          runtimeMode: "full-access",
+          threadId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
     });
     const repository = await runtime!.runPromise(Effect.service(ProviderSessionRuntimeRepository));
 
@@ -218,7 +230,7 @@ describe("ProviderSessionReaper", () => {
     expect(harness.stoppedThreadIds.has(threadId)).toBe(true);
   });
 
-  it("skips stale sessions when the thread still has an active turn", async () => {
+  it("does not stop stale sessions while reconciling active turns", async () => {
     const threadId = ThreadId.make("thread-reaper-active-turn");
     const turnId = TurnId.make("turn-reaper-active");
     const now = new Date().toISOString();
@@ -263,6 +275,119 @@ describe("ProviderSessionReaper", () => {
     expect(harness.stopSession).not.toHaveBeenCalled();
     const remaining = await runtime!.runPromise(repository.getByThreadId({ threadId }));
     expect(Option.isSome(remaining)).toBe(true);
+  });
+
+  it("clears stale active turns when no live provider session exists after restart", async () => {
+    const threadId = ThreadId.make("thread-reaper-stale-active-turn");
+    const turnId = TurnId.make("turn-reaper-stale-active");
+    const now = new Date().toISOString();
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      ]),
+    });
+    const repository = await runtime!.runPromise(Effect.service(ProviderSessionRuntimeRepository));
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: now,
+        resumeCursor: {
+          opaque: "resume-stale-active-turn",
+        },
+        runtimePayload: null,
+      }),
+    );
+
+    const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
+    scope = await Effect.runPromise(Scope.make("sequential"));
+    await Effect.runPromise(reaper.start().pipe(Scope.provide(scope)));
+
+    await waitFor(() => harness.dispatch.mock.calls.length === 1);
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+    const dispatched = harness.dispatch.mock.calls[0]?.[0];
+    expect(dispatched?.type).toBe("thread.session.set");
+    if (dispatched?.type === "thread.session.set") {
+      expect(dispatched.session.status).toBe("ready");
+      expect(dispatched.session.activeTurnId).toBeNull();
+    }
+  });
+
+  it("marks stale active turns as stopped when the persisted binding was stopped on shutdown", async () => {
+    const threadId = ThreadId.make("thread-reaper-stopped-active-turn");
+    const turnId = TurnId.make("turn-reaper-stopped-active");
+    const now = new Date().toISOString();
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      ]),
+    });
+    const repository = await runtime!.runPromise(Effect.service(ProviderSessionRuntimeRepository));
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: now,
+        resumeCursor: {
+          opaque: "resume-stopped-active-turn",
+        },
+        runtimePayload: { activeTurnId: turnId },
+      }),
+    );
+
+    const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
+    scope = await Effect.runPromise(Scope.make("sequential"));
+    await Effect.runPromise(reaper.start().pipe(Scope.provide(scope)));
+
+    await waitFor(() => harness.dispatch.mock.calls.length === 1);
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+    const dispatched = harness.dispatch.mock.calls[0]?.[0];
+    expect(dispatched?.type).toBe("thread.session.set");
+    if (dispatched?.type === "thread.session.set") {
+      expect(dispatched.session.status).toBe("stopped");
+      expect(dispatched.session.activeTurnId).toBeNull();
+      expect(dispatched.session.lastError).toBe(
+        "Previous provider turn was stopped because the server shut down.",
+      );
+    }
+    const persisted = await runtime!.runPromise(repository.getByThreadId({ threadId }));
+    expect(Option.isSome(persisted)).toBe(true);
+    if (Option.isSome(persisted)) {
+      expect(persisted.value.status).toBe("stopped");
+      expect(persisted.value.runtimePayload).toMatchObject({ activeTurnId: null });
+    }
   });
 
   it("does not reap sessions that are still within the inactivity threshold", async () => {

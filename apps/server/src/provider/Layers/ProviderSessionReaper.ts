@@ -1,3 +1,4 @@
+import { CommandId } from "@t3delta/contracts";
 import { Duration, Effect, Layer, Schedule } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -28,7 +29,77 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     );
     const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
 
+    const reconcileStaleActiveTurns = () =>
+      Effect.gen(function* () {
+        const readModel = yield* orchestrationEngine.getReadModel();
+        const threadsById = new Map(
+          readModel.threads.map((thread) => [thread.id, thread] as const),
+        );
+        const bindings = yield* directory.listBindings();
+        const liveSessions = yield* providerService.listSessions();
+
+        for (const binding of bindings) {
+          const thread = threadsById.get(binding.threadId);
+          if (thread?.session?.activeTurnId == null) {
+            continue;
+          }
+          const hasLiveSession = liveSessions.some(
+            (session) => session.threadId === binding.threadId,
+          );
+          if (hasLiveSession || thread.session.providerName !== binding.provider) {
+            continue;
+          }
+          const interruptedAt = new Date().toISOString();
+          const nextStatus = binding.status === "stopped" ? "stopped" : "ready";
+          yield* directory.upsert({
+            threadId: binding.threadId,
+            provider: binding.provider,
+            runtimeMode: binding.runtimeMode ?? thread.session.runtimeMode,
+            status: binding.status === "stopped" ? "stopped" : "running",
+            runtimePayload: {
+              activeTurnId: null,
+              lastRuntimeEvent: "provider.stale-active-turn.reaped",
+              lastRuntimeEventAt: interruptedAt,
+            },
+          });
+          yield* orchestrationEngine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make(`server:provider-stale-active-turn:${crypto.randomUUID()}`),
+            threadId: binding.threadId,
+            session: {
+              ...thread.session,
+              status: nextStatus,
+              activeTurnId: null,
+              lastError:
+                binding.status === "stopped"
+                  ? "Previous provider turn was stopped because the server shut down."
+                  : "Previous provider turn was interrupted because the server restarted.",
+              updatedAt: interruptedAt,
+            },
+            createdAt: interruptedAt,
+          });
+          yield* Effect.logInfo("provider.session.reaper.interrupted-stale-active-turn", {
+            threadId: binding.threadId,
+            provider: binding.provider,
+            activeTurnId: thread.session.activeTurnId,
+            persistedStatus: binding.status,
+          });
+        }
+      }).pipe(
+        Effect.catch((error: unknown) =>
+          Effect.logWarning("provider.session.reaper.stale-active-turn-reconcile-failed", {
+            error,
+          }),
+        ),
+        Effect.catchDefect((defect: unknown) =>
+          Effect.logWarning("provider.session.reaper.stale-active-turn-reconcile-defect", {
+            defect,
+          }),
+        ),
+      );
+
     const sweep = Effect.gen(function* () {
+      yield* reconcileStaleActiveTurns();
       const readModel = yield* orchestrationEngine.getReadModel();
       const threadsById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
       const bindings = yield* directory.listBindings();
@@ -51,10 +122,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
 
         const idleDurationMs = now - lastSeenMs;
-        if (idleDurationMs < inactivityThresholdMs) {
-          continue;
-        }
-
         const thread = threadsById.get(binding.threadId);
         if (thread?.session?.activeTurnId != null) {
           yield* Effect.logDebug("provider.session.reaper.skipped-active-turn", {
@@ -62,6 +129,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
             activeTurnId: thread.session.activeTurnId,
             idleDurationMs,
           });
+          continue;
+        }
+
+        if (idleDurationMs < inactivityThresholdMs) {
           continue;
         }
 
@@ -123,6 +194,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       });
 
     return {
+      reconcileStaleActiveTurns,
       start,
     } satisfies ProviderSessionReaperShape;
   });

@@ -606,8 +606,38 @@ const make = Effect.gen(function* () {
       });
     }
 
+    const clearLocalRunningState = (lastError: string | null) =>
+      thread.session
+        ? setThreadSession({
+            threadId: event.payload.threadId,
+            session: {
+              ...thread.session,
+              status: "ready",
+              activeTurnId: null,
+              lastError,
+              updatedAt: event.payload.createdAt,
+            },
+            createdAt: event.payload.createdAt,
+          })
+        : Effect.void;
+
     // Orchestration turn ids are not provider turn ids, so interrupt by session.
-    yield* providerService.interruptTurn({ threadId: event.payload.threadId });
+    yield* providerService.interruptTurn({ threadId: event.payload.threadId }).pipe(
+      Effect.tap(() => clearLocalRunningState(null)),
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          yield* appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.interrupt.failed",
+            summary: "Provider turn interrupt failed",
+            detail: Cause.pretty(cause),
+            turnId: event.payload.turnId ?? thread.session?.activeTurnId ?? null,
+            createdAt: event.payload.createdAt,
+          });
+          yield* clearLocalRunningState("Provider turn was interrupted locally.");
+        }),
+      ),
+    );
   });
 
   const processApprovalResponseRequested = Effect.fn("processApprovalResponseRequested")(function* (

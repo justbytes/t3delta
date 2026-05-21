@@ -68,7 +68,7 @@ import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
-import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import { buildComposerMenuItems } from "./composerMenuItems";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -76,7 +76,6 @@ import {
 } from "./composerProviderRegistry";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
-import { basenameOfPath } from "../../vscode-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
 import { Button } from "../ui/button";
@@ -100,8 +99,6 @@ import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
-import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
-import { searchProviderSkills } from "../../providerSkillSearch";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -715,121 +712,23 @@ export const ChatComposer = memo(
     );
     const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
 
-    const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
-      if (!composerTrigger) return [];
-      if (composerTrigger.kind === "path") {
-        return workspaceEntries.map((entry) => ({
-          id: `path:${entry.kind}:${entry.path}`,
-          type: "path",
-          path: entry.path,
-          pathKind: entry.kind,
-          label: basenameOfPath(entry.path),
-          description: entry.parentPath ?? "",
-        }));
-      }
-      if (composerTrigger.kind === "slash-command") {
-        const builtInSlashCommandItems = [
-          {
-            id: "slash:model",
-            type: "slash-command",
-            command: "model",
-            label: "/model",
-            description: "Switch response model for this thread",
-          },
-          {
-            id: "slash:plan",
-            type: "slash-command",
-            command: "plan",
-            label: "/plan",
-            description: "Switch this thread into plan mode",
-          },
-          {
-            id: "slash:default",
-            type: "slash-command",
-            command: "default",
-            label: "/default",
-            description: "Switch this thread back to normal build mode",
-          },
-        ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
-        const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
-          (command) => ({
-            id: `provider-slash-command:${selectedProvider}:${command.name}`,
-            type: "provider-slash-command" as const,
-            provider: selectedProvider,
-            command,
-            label: `/${command.name}`,
-            description: command.description ?? command.input?.hint ?? "Run provider command",
-          }),
-        );
-        const providerSkillCommandItems =
-          selectedProvider === "hermes"
-            ? (selectedProviderStatus?.skills ?? []).map((skill) => ({
-                id: `provider-slash-command:${selectedProvider}:skill:${skill.name}`,
-                type: "provider-slash-command" as const,
-                provider: selectedProvider,
-                command: {
-                  name: `skill ${skill.name}`,
-                  description:
-                    skill.shortDescription ?? skill.description ?? `Run ${skill.name} skill`,
-                },
-                label: `/skill ${skill.name}`,
-                description:
-                  skill.shortDescription ?? skill.description ?? `Run ${skill.name} Hermes skill`,
-              }))
-            : [];
-        const query = composerTrigger.query.trim().toLowerCase();
-        const slashCommandItems = [
-          ...builtInSlashCommandItems,
-          ...providerSlashCommandItems,
-          ...providerSkillCommandItems,
-        ];
-        if (!query) {
-          return slashCommandItems;
-        }
-        return searchSlashCommandItems(slashCommandItems, query);
-      }
-      if (composerTrigger.kind === "skill") {
-        return searchProviderSkills(
-          selectedProviderStatus?.skills ?? [],
-          composerTrigger.query,
-        ).map((skill) => ({
-          id: `skill:${selectedProvider}:${skill.name}`,
-          type: "skill" as const,
-          provider: selectedProvider,
-          skill,
-          label: formatProviderSkillDisplayName(skill),
-          description:
-            skill.shortDescription ??
-            skill.description ??
-            (skill.scope ? `${skill.scope} skill` : "Run provider skill"),
-        }));
-      }
-      return searchableModelOptions
-        .filter(({ searchSlug, searchName, searchProvider }) => {
-          const query = composerTrigger.query.trim().toLowerCase();
-          if (!query) return true;
-          return (
-            searchSlug.includes(query) ||
-            searchName.includes(query) ||
-            searchProvider.includes(query)
-          );
-        })
-        .map(({ provider, providerLabel, slug, name }) => ({
-          id: `model:${provider}:${slug}`,
-          type: "model",
-          provider,
-          model: slug,
-          label: name,
-          description: `${providerLabel} · ${slug}`,
-        }));
-    }, [
-      composerTrigger,
-      searchableModelOptions,
-      selectedProvider,
-      selectedProviderStatus,
-      workspaceEntries,
-    ]);
-
+    const composerMenuItems = useMemo<ComposerCommandItem[]>(
+      () =>
+        buildComposerMenuItems({
+          composerTrigger,
+          workspaceEntries,
+          selectedProvider,
+          selectedProviderStatus,
+          searchableModelOptions,
+        }),
+      [
+        composerTrigger,
+        searchableModelOptions,
+        selectedProvider,
+        selectedProviderStatus,
+        workspaceEntries,
+      ],
+    );
     const composerMenuOpen = Boolean(composerTrigger);
     const composerMenuSearchKey = composerTrigger
       ? `${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
@@ -1427,7 +1326,28 @@ export const ChatComposer = memo(
           return;
         }
         if (item.type === "provider-slash-command") {
-          const replacement = `/${item.command.name} `;
+          const replacement =
+            item.provider === "hermes" && item.command.name === "skill"
+              ? "$"
+              : `/${item.command.name} `;
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
+          return;
+        }
+        if (item.type === "skill-category") {
+          const replacement = `$${item.category}/`;
           const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
             snapshot.value,
             trigger.rangeEnd,
@@ -1462,12 +1382,14 @@ export const ChatComposer = memo(
           }
           return;
         }
-        onProviderModelSelect(item.provider, item.model);
-        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
-          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
-        });
-        if (applied) {
-          setComposerHighlightedItemId(null);
+        if (item.type === "model") {
+          onProviderModelSelect(item.provider, item.model);
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          });
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
         }
       },
       [

@@ -4,9 +4,9 @@ import { execFile, type ChildProcess, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { mkdir, readlink, rm, symlink } from "node:fs/promises";
+import { mkdir, readdir, readFile, readlink, rm, symlink } from "node:fs/promises";
 
-import { Context, Data, Effect, Exit, Layer, Ref } from "effect";
+import { Context, Data, Effect, Exit, Layer, Option, Ref } from "effect";
 
 import { loadHermesRelayConfig } from "./hermesEnv.ts";
 import { HermesClient } from "./hermesClient.ts";
@@ -36,6 +36,7 @@ export interface HermesGatewayManagerShape {
     readonly threadId: ThreadId;
     readonly cwd: string;
   }) => Effect.Effect<HermesGatewayHandle, HermesGatewayManagerError>;
+  readonly hardKill: (cwd: string) => Effect.Effect<ReadonlyArray<ThreadId>>;
   readonly release: (threadId: ThreadId) => Effect.Effect<void>;
   readonly stopAll: Effect.Effect<void>;
 }
@@ -150,6 +151,89 @@ function stopChild(child: ChildProcess): void {
   }, 2_000).unref();
 }
 
+async function readChildPidMap(): Promise<Map<number, Array<number>>> {
+  if (process.platform === "win32") return new Map();
+  const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid="]);
+  const childrenByParent = new Map<number, Array<number>>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const [pidText, ppidText] = line.trim().split(/\s+/);
+    const pid = Number(pidText);
+    const ppid = Number(ppidText);
+    if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue;
+    const children = childrenByParent.get(ppid) ?? [];
+    children.push(pid);
+    childrenByParent.set(ppid, children);
+  }
+  return childrenByParent;
+}
+
+function collectDescendantPids(
+  pid: number,
+  childrenByParent: Map<number, Array<number>>,
+): Array<number> {
+  const output: Array<number> = [];
+  const queue = [...(childrenByParent.get(pid) ?? [])];
+  for (const childPid of queue) {
+    output.push(childPid);
+    queue.push(...(childrenByParent.get(childPid) ?? []));
+  }
+  return output;
+}
+
+function signalPid(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (cause) {
+    const code = cause && typeof cause === "object" ? (cause as { code?: unknown }).code : null;
+    if (code !== "ESRCH") throw cause;
+  }
+}
+
+async function stopPidTree(
+  pid: number,
+  signal: NodeJS.Signals = "SIGTERM",
+  graceMs = 2_000,
+): Promise<void> {
+  const childrenByParent = await readChildPidMap().catch(() => new Map<number, Array<number>>());
+  const pids = [...collectDescendantPids(pid, childrenByParent).reverse(), pid];
+  for (const targetPid of pids) signalPid(targetPid, signal);
+  if (graceMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, graceMs));
+  }
+  for (const targetPid of pids) signalPid(targetPid, "SIGKILL");
+}
+
+function readGatewayStatePid(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const pid = record.pid;
+  const kind = record.kind;
+  const argv = record.argv;
+  const isGateway =
+    kind === "hermes-gateway" ||
+    (Array.isArray(argv) &&
+      argv.some((entry) => entry === "gateway") &&
+      argv.some((entry) => entry === "run"));
+  return isGateway && typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+async function stopStaleManagedGateways(hermesHomeRoot: string): Promise<void> {
+  const entries = await readdir(hermesHomeRoot, { withFileTypes: true }).catch(() => []);
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const statePath = join(hermesHomeRoot, entry.name, "gateway_state.json");
+        const state = await readFile(statePath, "utf8")
+          .then((contents) => JSON.parse(contents) as unknown)
+          .catch(() => undefined);
+        const pid = readGatewayStatePid(state);
+        if (pid === undefined || pid === process.pid) return;
+        await stopPidTree(pid).catch(() => undefined);
+      }),
+  );
+}
+
 export class HermesGatewayManager extends Context.Service<
   HermesGatewayManager,
   HermesGatewayManagerShape
@@ -163,9 +247,31 @@ export const HermesGatewayManagerLive = Layer.effect(
       byCwd: new Map(),
       cwdByThreadId: new Map(),
     });
+    const knownChildren = new Set<ChildProcess>();
+
+    const initialSettings = yield* settings.getSettings.pipe(Effect.option);
+    if (
+      Option.isSome(initialSettings) &&
+      initialSettings.value.providers.hermes.gatewayMode === "managed"
+    ) {
+      const hermesHomeRoot =
+        initialSettings.value.providers.hermes.hermesHomeRoot.trim() || defaultHermesHomeRoot();
+      yield* Effect.tryPromise({
+        try: () => stopStaleManagedGateways(hermesHomeRoot),
+        catch: () => undefined,
+      }).pipe(Effect.ignore);
+    }
+
+    const stopKnownChildren = () => {
+      for (const child of knownChildren) stopChild(child);
+    };
+    process.once("SIGTERM", stopKnownChildren);
+    process.once("SIGINT", stopKnownChildren);
+    process.once("exit", stopKnownChildren);
 
     const stopGateway = (gateway: ManagedGateway) =>
       Effect.sync(() => {
+        knownChildren.delete(gateway.child);
         stopChild(gateway.child);
       });
 
@@ -260,6 +366,7 @@ export const HermesGatewayManagerLive = Layer.effect(
             },
             stdio: ["ignore", "pipe", "pipe"],
           });
+          knownChildren.add(child);
           child.stdout.on("data", () => undefined);
           child.stderr.on("data", () => undefined);
 
@@ -289,6 +396,7 @@ export const HermesGatewayManagerLive = Layer.effect(
               threadIds: new Set([input.threadId]),
             };
             child.once("exit", () => {
+              knownChildren.delete(child);
               void Effect.runPromise(
                 Ref.update(stateRef, (state) => {
                   const current = state.byCwd.get(input.cwd);
@@ -310,6 +418,7 @@ export const HermesGatewayManagerLive = Layer.effect(
           }
 
           lastError = ready.cause;
+          knownChildren.delete(child);
           stopChild(child);
         }
 
@@ -340,6 +449,32 @@ export const HermesGatewayManagerLive = Layer.effect(
         if (gateway) yield* stopGateway(gateway);
       });
 
+    const hardKill: HermesGatewayManagerShape["hardKill"] = (cwd) =>
+      Effect.gen(function* () {
+        const gateway = yield* Ref.modify(stateRef, (state) => {
+          const current = state.byCwd.get(cwd);
+          if (!current) return [undefined, state] as const;
+          const byCwd = new Map(state.byCwd);
+          const cwdByThreadId = new Map(state.cwdByThreadId);
+          byCwd.delete(cwd);
+          for (const threadId of current.threadIds) cwdByThreadId.delete(threadId);
+          return [current, { byCwd, cwdByThreadId }] as const;
+        });
+        if (!gateway) return [];
+        knownChildren.delete(gateway.child);
+        const affectedThreadIds = Array.from(gateway.threadIds);
+        const pid = gateway.child.pid;
+        if (pid && Number.isInteger(pid) && pid > 0) {
+          yield* Effect.tryPromise({
+            try: () => stopPidTree(pid, "SIGKILL", 0),
+            catch: () => undefined,
+          }).pipe(Effect.ignore);
+        } else {
+          yield* Effect.sync(() => stopChild(gateway.child));
+        }
+        return affectedThreadIds;
+      });
+
     const stopAll = Effect.gen(function* () {
       const gateways = yield* Ref.modify(stateRef, (state) => [
         Array.from(state.byCwd.values()),
@@ -348,8 +483,18 @@ export const HermesGatewayManagerLive = Layer.effect(
       yield* Effect.forEach(gateways, stopGateway, { discard: true });
     });
 
-    yield* Effect.addFinalizer(() => stopAll);
+    yield* Effect.addFinalizer(() =>
+      stopAll.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            process.off("SIGTERM", stopKnownChildren);
+            process.off("SIGINT", stopKnownChildren);
+            process.off("exit", stopKnownChildren);
+          }),
+        ),
+      ),
+    );
 
-    return { acquire, release, stopAll } satisfies HermesGatewayManagerShape;
+    return { acquire, hardKill, release, stopAll } satisfies HermesGatewayManagerShape;
   }),
 );

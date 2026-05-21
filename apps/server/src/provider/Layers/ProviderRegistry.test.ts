@@ -159,6 +159,31 @@ function withTempCodexHome(configContent?: string) {
   });
 }
 
+function withTempHermesHome() {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const tmpDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-test-hermes-" });
+
+    yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        const originalHermesHome = process.env.HERMES_HOME;
+        process.env.HERMES_HOME = tmpDir;
+        return originalHermesHome;
+      }),
+      (originalHermesHome) =>
+        Effect.sync(() => {
+          if (originalHermesHome !== undefined) {
+            process.env.HERMES_HOME = originalHermesHome;
+          } else {
+            delete process.env.HERMES_HOME;
+          }
+        }),
+    );
+
+    return { tmpDir } as const;
+  });
+}
+
 it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
   "ProviderRegistry",
   (it) => {
@@ -678,6 +703,70 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               refreshed.find((provider) => provider.provider === "codex")?.status,
               "ready",
             );
+          }).pipe(Effect.provide(runtimeServices));
+        }),
+      );
+
+      it.effect("includes installed Hermes skills in the Hermes provider snapshot", () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const { tmpDir } = yield* withTempHermesHome();
+          yield* fileSystem.makeDirectory(path.join(tmpDir, "skills", "creative", "pixel-art"), {
+            recursive: true,
+          });
+          yield* fileSystem.writeFileString(
+            path.join(tmpDir, "skills", "creative", "pixel-art", "SKILL.md"),
+            ["---", "name: pixel-art", "description: Make tiny sprites", "---", "# Pixel Art"].join(
+              "\n",
+            ),
+          );
+
+          const serverSettings = yield* makeMutableServerSettingsService();
+          const scope = yield* Scope.make();
+          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+          const providerRegistryLayer = ProviderRegistryLive.pipe(
+            Layer.provide(CodexProviderLive),
+            Layer.provideMerge(Layer.succeed(ServerSettingsService, serverSettings)),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "t3-provider-registry-",
+              }),
+            ),
+            Layer.provideMerge(
+              mockCommandSpawnerLayer((command, args) => {
+                const joined = args.join(" ");
+                if (command === "codex" && joined === "--version") {
+                  return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+                }
+                if (command === "codex" && joined === "login status") {
+                  return { stdout: "Logged in\n", stderr: "", code: 0 };
+                }
+                throw new Error(`Unexpected args: ${command} ${joined}`);
+              }),
+            ),
+          );
+          const runtimeServices = yield* Layer.build(
+            Layer.mergeAll(
+              Layer.succeed(ServerSettingsService, serverSettings),
+              providerRegistryLayer,
+            ),
+          ).pipe(Scope.provide(scope));
+
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry;
+            const providers = yield* registry.getProviders;
+            const hermes = providers.find((provider) => provider.provider === "hermes");
+            assert.deepStrictEqual(hermes?.skills, [
+              {
+                name: "pixel-art",
+                path: path.join(tmpDir, "skills", "creative", "pixel-art", "SKILL.md"),
+                enabled: true,
+                description: "Make tiny sprites",
+                shortDescription: "Make tiny sprites",
+                scope: "creative",
+              },
+            ]);
           }).pipe(Effect.provide(runtimeServices));
         }),
       );

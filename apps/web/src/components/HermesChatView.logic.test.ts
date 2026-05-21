@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   HermesContextUsageMeter,
+  formatElapsedTime,
   normalizeHermesJobs,
   normalizeHermesMemory,
   normalizeHermesModels,
@@ -41,6 +42,14 @@ describe("HermesContextUsageMeter", () => {
 
     expect(markup).toContain("8,500 / 10,000");
     expect(markup).toContain("bg-amber-400");
+  });
+});
+
+describe("formatElapsedTime", () => {
+  it("formats seconds, minutes, and hours for the composer status rail", () => {
+    expect(formatElapsedTime(12_500)).toBe("12s");
+    expect(formatElapsedTime(125_000)).toBe("2m 5s");
+    expect(formatElapsedTime(7_500_000)).toBe("2h 5m");
   });
 });
 

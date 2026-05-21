@@ -31,6 +31,7 @@ const fakeCodexAdapter: CodexAdapterShape = {
 
 const fakeHermesGatewayManager = {
   acquire: vi.fn(),
+  hardKill: vi.fn(() => Effect.succeed([])),
   release: vi.fn(() => Effect.void),
   stopAll: Effect.void,
 };

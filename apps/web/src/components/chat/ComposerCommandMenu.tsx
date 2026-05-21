@@ -8,6 +8,7 @@ import { BotIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
+import { formatProviderSkillCategoryLabel } from "../../providerSkillCategories";
 import { formatProviderSkillInstallSource } from "~/providerSkillPresentation";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
@@ -55,6 +56,14 @@ export type ComposerCommandItem =
     }
   | {
       id: string;
+      type: "skill-category";
+      provider: ProviderKind;
+      category: string;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
       type: "skill";
       provider: ProviderKind;
       skill: ServerProviderSkill;
@@ -93,7 +102,25 @@ function groupCommandItems(
   groupSlashCommandSections: boolean,
 ): ComposerCommandGroup[] {
   if (triggerKind === "skill") {
-    return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
+    const categoryItems = items.filter((item) => item.type === "skill-category");
+    const skillItems = items.filter((item) => item.type === "skill");
+    const groups: ComposerCommandGroup[] = [];
+    if (categoryItems.length > 0) {
+      groups.push({ id: "skill-categories", label: "Categories", items: categoryItems });
+    }
+    const skillsByCategory = new Map<string, ComposerCommandItem[]>();
+    for (const item of skillItems) {
+      const category = item.skill.scope ?? "Other";
+      skillsByCategory.set(category, [...(skillsByCategory.get(category) ?? []), item]);
+    }
+    for (const [category, categorySkills] of skillsByCategory) {
+      groups.push({
+        id: `skills:${category}`,
+        label: formatProviderSkillCategoryLabel(category),
+        items: categorySkills,
+      });
+    }
+    return groups;
   }
   if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
     return [{ id: "default", label: null, items }];
@@ -250,7 +277,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           <SkillGlyph className="size-3.5" />
         </span>
       ) : null}
-      {props.item.type === "skill" ? (
+      {props.item.type === "skill" || props.item.type === "skill-category" ? (
         <span className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/80">
           <SkillGlyph className="size-3.5" />
         </span>

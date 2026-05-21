@@ -329,6 +329,7 @@ export const makeServerRuntimeStartup = Effect.gen(function* () {
       "reactors.start",
       Effect.gen(function* () {
         yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
+        yield* providerSessionReaper.reconcileStaleActiveTurns();
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
       }),
     );

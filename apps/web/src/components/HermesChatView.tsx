@@ -867,10 +867,12 @@ export default function HermesChatView() {
         setDraft(activeSession.id, "");
         return;
       }
-      if (command.kind === "skill" && command.skill) {
-        if (gatewayStatus === "unreachable" || requestInFlight || activeSession.isRunning) return;
-        void sendText(`/${command.skill.name}`);
+      if (command.id === "skill") {
+        setDraft(activeSession.id, "$");
+        return;
       }
+      if (gatewayStatus === "unreachable" || requestInFlight || activeSession.isRunning) return;
+      void sendText(command.name);
     },
     [
       activeSession.id,
@@ -1109,7 +1111,11 @@ export default function HermesChatView() {
               isRunning={activeSession.isRunning}
               requestInFlight={requestInFlight}
               gatewayDown={gatewayStatus === "unreachable"}
+              activeSession={activeSession}
+              selectedModel={selectedModel}
+              modelOptions={modelOptions}
               installedSkills={installedSkills}
+              onOpenModelPicker={() => setModelPickerOpen(true)}
               onSlashCommand={executeSlashCommand}
               onSkillReference={insertSkillReference}
               onDraftChange={(draft) => setDraft(activeSession.id, draft)}
@@ -2365,7 +2371,7 @@ function buildFileTree(paths: readonly string[]): FileTreeNode[] {
       current = node.children;
     }
   }
-  return root.sort((left, right) => left.name.localeCompare(right.name));
+  return root.toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
 function HermesFileTreeNode({ node, level }: { node: FileTreeNode; level: number }) {
@@ -2640,11 +2646,16 @@ function HermesSlashCommandMenu(props: {
             >
               <SparklesIcon className="mt-0.5 size-3.5 text-muted-foreground" />
               <span className="min-w-0 flex-1">
-                <span className="block font-mono font-medium">{command.name}</span>
+                <span className="block font-mono font-medium">
+                  {command.name}
+                  {command.inputHint ? (
+                    <span className="ml-1 text-muted-foreground/60">{command.inputHint}</span>
+                  ) : null}
+                </span>
                 <span className="mt-0.5 block text-muted-foreground/75">{command.description}</span>
               </span>
               <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {command.kind === "skill" ? command.skill?.category : "built-in"}
+                built-in
               </span>
             </button>
           ))
@@ -2654,6 +2665,16 @@ function HermesSlashCommandMenu(props: {
       </div>
     </div>
   );
+}
+
+export function formatElapsedTime(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 function HermesSkillSearchMenu(props: {
@@ -2703,12 +2724,16 @@ function HermesSkillSearchMenu(props: {
 }
 
 function HermesComposer(props: {
+  activeSession: HermesSession;
   draft: string;
   disabled: boolean;
   isRunning: boolean;
   requestInFlight: boolean;
   gatewayDown: boolean;
+  selectedModel: string | null;
+  modelOptions: readonly HermesModelOption[];
   installedSkills: readonly HermesSkillSummary[];
+  onOpenModelPicker: () => void;
   onSlashCommand: (command: HermesSlashCommand) => void;
   onSkillReference: (skill: HermesSkillSummary) => void;
   onDraftChange: (draft: string) => void;
@@ -2723,15 +2748,29 @@ function HermesComposer(props: {
   const [skillQuery, setSkillQuery] = useState<string | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const slashCommands = useMemo(
-    () =>
-      filterHermesSlashCommands(buildHermesSlashCommands(props.installedSkills), slashQuery ?? ""),
-    [props.installedSkills, slashQuery],
+    () => filterHermesSlashCommands(buildHermesSlashCommands(), slashQuery ?? ""),
+    [slashQuery],
   );
   const skillResults = useMemo(
     () => filterHermesSkills(props.installedSkills, skillQuery ?? ""),
     [props.installedSkills, skillQuery],
   );
+  const selectedModelLabel = useMemo(() => {
+    const model = props.modelOptions.find((option) => option.id === props.selectedModel);
+    return model ? `${model.provider}/${model.name}` : (props.selectedModel ?? "Model");
+  }, [props.modelOptions, props.selectedModel]);
+  const elapsedLabel = formatElapsedTime(
+    now - new Date(props.activeSession.activeStartedAt ?? props.activeSession.createdAt).getTime(),
+  );
+  const messageCount = props.activeSession.messages.length;
+  const toolCount = props.activeSession.toolCalls.length;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (mentionQuery === null) {
@@ -2820,105 +2859,136 @@ function HermesComposer(props: {
         void props.onSend();
       }}
     >
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-card/35 p-2">
-        <textarea
-          ref={textareaRef}
-          className="min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground/40 disabled:opacity-60"
-          placeholder={
-            props.gatewayDown
-              ? "Hermes Gateway is not reachable"
-              : "Message Hermes... (Enter to send, Shift+Enter for newline)"
-          }
-          rows={2}
-          value={props.draft}
-          disabled={props.gatewayDown}
-          onChange={(event) => {
-            props.onDraftChange(event.target.value);
-            updateMentionQuery(event.target.value, event.target.selectionStart);
-            updateCommandQueries(event.target.value, event.target.selectionStart);
-          }}
-          onKeyDown={(event) => {
-            if (slashQuery !== null) {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setSlashIndex((value) =>
-                  Math.min(value + 1, Math.max(0, slashCommands.length - 1)),
-                );
-                return;
-              }
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setSlashIndex((value) => Math.max(0, value - 1));
-                return;
-              }
-              if ((event.key === "Enter" || event.key === "Tab") && slashCommands[slashIndex]) {
-                event.preventDefault();
-                chooseSlashCommand(slashCommands[slashIndex]);
-                return;
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setSlashQuery(null);
-                return;
-              }
-            }
-            if (skillQuery !== null) {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setSkillIndex((value) => Math.min(value + 1, Math.max(0, skillResults.length - 1)));
-                return;
-              }
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setSkillIndex((value) => Math.max(0, value - 1));
-                return;
-              }
-              if ((event.key === "Enter" || event.key === "Tab") && skillResults[skillIndex]) {
-                event.preventDefault();
-                chooseSkill(skillResults[skillIndex]);
-                return;
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setSkillQuery(null);
-                return;
-              }
-            }
-            if (mentionQuery !== null && mentionFiles.length > 0 && event.key === "Tab") {
-              event.preventDefault();
-              insertMention(mentionFiles[0]!);
-              return;
-            }
-            if (mentionQuery !== null && event.key === "Escape") {
-              event.preventDefault();
-              setMentionQuery(null);
-              return;
-            }
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void props.onSend();
-            }
-          }}
-        />
-        {props.isRunning ? (
-          <Button
+      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card/35 p-2 shadow-sm">
+        <div className="mb-2 flex flex-wrap items-center gap-2 border-b border-border/45 px-1 pb-2 text-[11px] text-muted-foreground/65">
+          <button
             type="button"
-            variant="outline"
-            size="icon"
-            onClick={props.onStop}
-            title="Stop response"
+            className="inline-flex max-w-full items-center gap-1 rounded-full bg-secondary/70 px-2 py-1 text-foreground hover:bg-secondary"
+            onClick={props.onOpenModelPicker}
+            title="Change Hermes model"
           >
-            <SquareIcon className="size-4" />
-          </Button>
-        ) : (
-          <Button type="submit" size="icon" disabled={props.disabled} title="Send message">
-            {props.requestInFlight ? (
-              <RefreshCwIcon className="size-4 animate-spin" />
-            ) : (
-              <SendIcon className="size-4" />
-            )}
-          </Button>
-        )}
+            <SparklesIcon className="size-3" />
+            <span className="max-w-48 truncate">{selectedModelLabel}</span>
+            <ChevronDownIcon className="size-3" />
+          </button>
+          <span className="rounded-full bg-background/55 px-2 py-1">{elapsedLabel}</span>
+          <span className="rounded-full bg-background/55 px-2 py-1">
+            {messageCount} messages • {toolCount} tools
+          </span>
+          {props.activeSession.contextUsage ? (
+            <span className="rounded-full bg-background/55 px-2 py-1">
+              Context {props.activeSession.contextUsage.usedTokens.toLocaleString()}
+              {props.activeSession.contextUsage.maxTokens
+                ? ` / ${props.activeSession.contextUsage.maxTokens.toLocaleString()}`
+                : ""}
+            </span>
+          ) : null}
+          <span className="ml-auto rounded-full bg-background/55 px-2 py-1">
+            / commands · $ skills · @ files
+          </span>
+        </div>
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            className="min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground/40 disabled:opacity-60"
+            placeholder={
+              props.gatewayDown
+                ? "Hermes Gateway is not reachable"
+                : "Message Hermes... (Enter to send, Shift+Enter for newline)"
+            }
+            rows={2}
+            value={props.draft}
+            disabled={props.gatewayDown}
+            onChange={(event) => {
+              props.onDraftChange(event.target.value);
+              updateMentionQuery(event.target.value, event.target.selectionStart);
+              updateCommandQueries(event.target.value, event.target.selectionStart);
+            }}
+            onKeyDown={(event) => {
+              if (slashQuery !== null) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setSlashIndex((value) =>
+                    Math.min(value + 1, Math.max(0, slashCommands.length - 1)),
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setSlashIndex((value) => Math.max(0, value - 1));
+                  return;
+                }
+                if ((event.key === "Enter" || event.key === "Tab") && slashCommands[slashIndex]) {
+                  event.preventDefault();
+                  chooseSlashCommand(slashCommands[slashIndex]);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSlashQuery(null);
+                  return;
+                }
+              }
+              if (skillQuery !== null) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setSkillIndex((value) =>
+                    Math.min(value + 1, Math.max(0, skillResults.length - 1)),
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setSkillIndex((value) => Math.max(0, value - 1));
+                  return;
+                }
+                if ((event.key === "Enter" || event.key === "Tab") && skillResults[skillIndex]) {
+                  event.preventDefault();
+                  chooseSkill(skillResults[skillIndex]);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSkillQuery(null);
+                  return;
+                }
+              }
+              if (mentionQuery !== null && mentionFiles.length > 0 && event.key === "Tab") {
+                event.preventDefault();
+                insertMention(mentionFiles[0]!);
+                return;
+              }
+              if (mentionQuery !== null && event.key === "Escape") {
+                event.preventDefault();
+                setMentionQuery(null);
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void props.onSend();
+              }
+            }}
+          />
+          {props.isRunning ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={props.onStop}
+              title="Stop response"
+            >
+              <SquareIcon className="size-4" />
+            </Button>
+          ) : (
+            <Button type="submit" size="icon" disabled={props.disabled} title="Send message">
+              {props.requestInFlight ? (
+                <RefreshCwIcon className="size-4 animate-spin" />
+              ) : (
+                <SendIcon className="size-4" />
+              )}
+            </Button>
+          )}
+        </div>
       </div>
       {slashQuery !== null ? (
         <HermesSlashCommandMenu

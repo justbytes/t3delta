@@ -1,9 +1,14 @@
 import { execFile } from "node:child_process";
-import { homedir } from "node:os";
-import { basename, isAbsolute, join, normalize, relative, sep } from "node:path";
+import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+
+import {
+  directoryExists,
+  findHermesSkillFiles,
+  resolveHermesRoot,
+} from "./hermesSkillDiscovery.ts";
 
 const execFileAsync = promisify(execFile);
 const textEncoder = new TextEncoder();
@@ -11,12 +16,6 @@ const textEncoder = new TextEncoder();
 export interface HermesFileAccessOptions {
   readonly hermesDir?: string;
   readonly commandRunner?: HermesCommandRunner;
-}
-
-export interface HermesSkillSummary {
-  readonly name: string;
-  readonly description: string;
-  readonly category: string;
 }
 
 export interface HermesSessionSummary {
@@ -40,12 +39,6 @@ interface FileAccessErrorBody {
     readonly code: string;
     readonly message: string;
   };
-}
-
-interface SkillFile {
-  readonly fullPath: string;
-  readonly relativeDir: string;
-  readonly summary: HermesSkillSummary;
 }
 
 const memoryFiles = {
@@ -82,7 +75,7 @@ function fileAccessError(status: number, code: string, message: string): Respons
 }
 
 function hermesRoot(options: HermesFileAccessOptions): string {
-  return options.hermesDir ?? join(homedir(), ".hermes");
+  return resolveHermesRoot(options);
 }
 
 function ensureRelativePath(input: string): string | undefined {
@@ -100,83 +93,15 @@ function isWithin(root: string, candidate: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-async function directoryExists(path: string): Promise<boolean> {
-  return stat(path)
-    .then((value) => value.isDirectory())
-    .catch(() => false);
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  return stat(path)
-    .then((value) => value.isFile())
-    .catch(() => false);
-}
-
-function parseFrontmatter(markdown: string): Record<string, string> {
-  if (!markdown.startsWith("---")) return {};
-  const end = markdown.indexOf("\n---", 3);
-  if (end === -1) return {};
-  const metadata: Record<string, string> = {};
-  for (const line of markdown.slice(3, end).split(/\r?\n/)) {
-    const match = /^([A-Za-z0-9_-]+):\s*(.+?)\s*$/.exec(line);
-    if (match) metadata[match[1]!] = match[2]!.replace(/^["']|["']$/g, "");
-  }
-  return metadata;
-}
-
-function descriptionFromMarkdown(markdown: string): string {
-  const metadata = parseFrontmatter(markdown);
-  if (metadata.description) return metadata.description;
-  const body = markdown.replace(/^---[\s\S]*?\n---\s*/, "");
-  const heading = body
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^#+\s*/, "").trim())
-    .find(Boolean);
-  return heading ?? "";
-}
-
-async function findSkillFiles(skillsDir: string): Promise<ReadonlyArray<SkillFile>> {
-  async function walk(dir: string): Promise<ReadonlyArray<SkillFile>> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    const files: Array<SkillFile> = [];
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const skillPath = join(fullPath, "SKILL.md");
-        if (await fileExists(skillPath)) {
-          const content = await readFile(skillPath, "utf8");
-          const metadata = parseFrontmatter(content);
-          const relativeDir = relative(skillsDir, fullPath);
-          const parts = relativeDir.split(sep);
-          files.push({
-            fullPath: skillPath,
-            relativeDir,
-            summary: {
-              name: metadata.name ?? basename(fullPath),
-              description: metadata.description ?? descriptionFromMarkdown(content),
-              category: parts.length > 1 ? parts[0]! : "uncategorized",
-            },
-          });
-          continue;
-        }
-        if (entry.isDirectory()) files.push(...(await walk(fullPath)));
-      }
-    }
-    return files;
-  }
-
-  return walk(skillsDir);
-}
-
 async function listSkills(options: HermesFileAccessOptions): Promise<Response> {
   const skillsDir = join(hermesRoot(options), "skills");
   if (!(await directoryExists(skillsDir))) {
     return fileAccessError(404, "skills_not_found", "Hermes skills directory was not found");
   }
 
-  const skills = (await findSkillFiles(skillsDir))
+  const skills = (await findHermesSkillFiles(skillsDir))
     .map((skill) => skill.summary)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .toSorted((a, b) => a.name.localeCompare(b.name));
   return jsonResponse(skills);
 }
 
@@ -189,7 +114,7 @@ async function readSkill(options: HermesFileAccessOptions, skillName: string): P
     return fileAccessError(404, "skills_not_found", "Hermes skills directory was not found");
   }
 
-  const skills = await findSkillFiles(skillsDir);
+  const skills = await findHermesSkillFiles(skillsDir);
   const skill = skills.find(
     (candidate) => candidate.summary.name === safeName || candidate.relativeDir === safeName,
   );

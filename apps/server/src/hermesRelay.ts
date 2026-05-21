@@ -451,6 +451,7 @@ function startBunHermesRelay(options: HermesRelayOptions): HermesRelayServer {
             method: request.method,
             headers: hermesGatewayRequestHeaders(request.headers),
             ...(body === undefined ? {} : { body }),
+            signal: request.signal,
           });
           markGatewayReachable();
           const responseBody =
@@ -577,11 +578,18 @@ export function startHermesRelay(options: HermesRelayOptions = {}): HermesRelayS
         : url.pathname;
       const pathAndSearch = `${gatewayPath}${url.search}`;
       const body = await readNodeRequestBody(request);
+      const abortController = new AbortController();
+      const abortUpstream = () => abortController.abort();
+      request.on("aborted", abortUpstream);
+      response.on("close", () => {
+        if (!response.writableEnded) abortUpstream();
+      });
       try {
         const upstream = await client.proxy(pathAndSearch, {
           method: request.method ?? "GET",
           headers: nodeRequestHeaders(request),
           ...(body === undefined ? {} : { body }),
+          signal: abortController.signal,
         });
         markGatewayReachable();
         await writeUpstreamBody(response, upstream, body, broadcast, reportSseInterrupted);

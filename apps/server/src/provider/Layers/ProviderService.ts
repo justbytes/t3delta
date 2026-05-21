@@ -500,8 +500,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const routed = yield* resolveRoutableSession({
           threadId: input.threadId,
           operation: "ProviderService.interruptTurn",
-          allowRecovery: true,
+          allowRecovery: false,
         });
+        if (!routed.isActive) {
+          return yield* toValidationError(
+            "ProviderService.interruptTurn",
+            `Cannot interrupt thread '${input.threadId}' because no live provider session exists.`,
+          );
+        }
         metricProvider = routed.adapter.provider;
         yield* Effect.annotateCurrentSpan({
           "provider.operation": "interrupt-turn",

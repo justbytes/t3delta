@@ -23,33 +23,29 @@ describe("normalizeHermesSkills", () => {
 });
 
 describe("buildHermesSlashCommands", () => {
-  it("keeps built-ins available and appends installed Hermes skills", () => {
-    const commands = buildHermesSlashCommands([
-      { name: "research", description: "Research things", category: "analysis" },
-    ]);
+  it("exposes Hermes built-ins without mixing installed skills into slash search", () => {
+    const commands = buildHermesSlashCommands();
 
-    expect(commands.map((command) => command.name)).toEqual([
-      "/model",
-      "/new",
-      "/clear",
-      "/research",
-    ]);
-    expect(commands.at(-1)).toMatchObject({ kind: "skill", id: "skill:research" });
+    expect(commands.map((command) => command.name)).toContain("/model");
+    expect(commands.map((command) => command.name)).toContain("/skill");
+    expect(commands.map((command) => command.name)).toContain("/usage");
+    expect(commands.some((command) => command.id.startsWith("skill:"))).toBe(false);
   });
 });
 
 describe("filterHermesSlashCommands", () => {
-  it("filters built-ins and skills by command text or description", () => {
-    const commands = buildHermesSlashCommands([
-      { name: "storyboard", description: "Plan shots", category: "creative" },
-    ]);
+  it("filters built-ins by command text, input hint, or description", () => {
+    const commands = buildHermesSlashCommands();
 
     expect(filterHermesSlashCommands(commands, "/mod").map((command) => command.name)).toEqual([
       "/model",
     ]);
-    expect(filterHermesSlashCommands(commands, "creative").map((command) => command.name)).toEqual([
-      "/storyboard",
-    ]);
+    expect(filterHermesSlashCommands(commands, "token").map((command) => command.name)).toContain(
+      "/usage",
+    );
+    expect(filterHermesSlashCommands(commands, "<name>").map((command) => command.name)).toContain(
+      "/skill",
+    );
   });
 });
 

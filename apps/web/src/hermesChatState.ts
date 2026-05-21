@@ -36,6 +36,44 @@ export function createEmptyHermesSession(
   };
 }
 
+export function clearHermesSessionRuntimeState(
+  session: HermesSession,
+  options: { readonly interrupted?: boolean } = {},
+): HermesSession {
+  const shouldMarkInterrupted =
+    options.interrupted === true &&
+    (session.isRunning ||
+      session.activeAssistantMessageId !== undefined ||
+      session.messages.some((message) => message.streaming));
+  return {
+    ...session,
+    approvals: session.approvals ?? [],
+    structuredInputs: session.structuredInputs ?? [],
+    isRunning: false,
+    activeAssistantMessageId: undefined,
+    activeStartedAt: undefined,
+    messages: session.messages.map((message) =>
+      message.streaming
+        ? {
+            ...message,
+            streaming: false,
+            ...(shouldMarkInterrupted ? { interrupted: true } : {}),
+            completedAt: message.completedAt ?? nowIso(),
+          }
+        : message,
+    ),
+    toolCalls: session.toolCalls.map((tool) =>
+      tool.status === "running"
+        ? {
+            ...tool,
+            status: "completed",
+            completedAt: tool.completedAt ?? nowIso(),
+          }
+        : tool,
+    ),
+  };
+}
+
 export function createInitialHermesChatState(): HermesChatState {
   const session = createEmptyHermesSession();
   return {
@@ -76,17 +114,7 @@ export function loadPersistedHermesChatState(): HermesChatState {
       sessionsById: Object.fromEntries(
         validSessionIds.map((id) => {
           const session = sessionsById[id]!;
-          return [
-            id,
-            {
-              ...session,
-              approvals: session.approvals ?? [],
-              structuredInputs: session.structuredInputs ?? [],
-              isRunning: false,
-              activeAssistantMessageId: undefined,
-              activeStartedAt: undefined,
-            } satisfies HermesSession,
-          ];
+          return [id, clearHermesSessionRuntimeState(session, { interrupted: true })];
         }),
       ),
       activeSessionId,
@@ -110,17 +138,7 @@ export function persistHermesChatState(state: HermesChatState): void {
     sessionsById: Object.fromEntries(
       state.sessionIds.map((id) => {
         const session = state.sessionsById[id]!;
-        return [
-          id,
-          {
-            ...session,
-            approvals: session.approvals ?? [],
-            structuredInputs: session.structuredInputs ?? [],
-            isRunning: false,
-            activeAssistantMessageId: undefined,
-            activeStartedAt: undefined,
-          } satisfies HermesSession,
-        ];
+        return [id, clearHermesSessionRuntimeState(session, { interrupted: true })];
       }),
     ),
   };
@@ -271,9 +289,9 @@ export function hydrateHermesSessionFromRelayTranscript(
     structuredInputs: existing?.structuredInputs ?? [],
     contextUsage: existing?.contextUsage,
     draft: existing?.draft ?? "",
-    isRunning: existing?.isRunning ?? false,
-    activeAssistantMessageId: existing?.activeAssistantMessageId,
-    activeStartedAt: existing?.activeStartedAt,
+    isRunning: false,
+    activeAssistantMessageId: undefined,
+    activeStartedAt: undefined,
     archivedAt: existing?.archivedAt,
     titleManuallyEdited: existing?.titleManuallyEdited,
     error: existing?.error,

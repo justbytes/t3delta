@@ -8,12 +8,14 @@ import {
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3delta/contracts";
 import { Data, Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
 
 import { HermesClient } from "../../hermesClient.ts";
 import { loadHermesRelayConfig } from "../../hermesEnv.ts";
+import { listHermesProviderSkills } from "../../hermesSkillDiscovery.ts";
 import { buildServerProvider, defaultProviderCapabilities } from "../providerSnapshot.ts";
 import { CodexProvider } from "../Services/CodexProvider.ts";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry.ts";
@@ -28,13 +30,66 @@ export const haveProvidersChanged = (
 ): boolean => !Equal.equals(previousProviders, nextProviders);
 
 const HERMES_SLASH_COMMANDS: ReadonlyArray<ServerProviderSlashCommand> = [
-  { name: "model", description: "Switch Hermes model" },
-  { name: "new", description: "Start a new Hermes session" },
-  { name: "clear", description: "Clear the current composer draft" },
+  { name: "new", description: "Fresh session" },
+  { name: "reset", description: "Alias for /new" },
+  { name: "clear", description: "Clear screen and start a new CLI session" },
+  { name: "retry", description: "Resend the last message" },
+  { name: "undo", description: "Remove the last exchange" },
+  { name: "title", description: "Name the session", input: { hint: "[name]" } },
+  { name: "compress", description: "Manually compress context" },
+  { name: "stop", description: "Kill background processes" },
+  { name: "rollback", description: "Restore a filesystem checkpoint", input: { hint: "[N]" } },
+  {
+    name: "background",
+    description: "Run a prompt in the background",
+    input: { hint: "<prompt>" },
+  },
+  { name: "queue", description: "Queue a prompt for the next turn", input: { hint: "<prompt>" } },
+  { name: "resume", description: "Resume a named session", input: { hint: "[name]" } },
+  { name: "config", description: "Show Hermes config" },
+  { name: "model", description: "Switch Hermes model", input: { hint: "[name]" } },
+  { name: "personality", description: "Set the active personality", input: { hint: "[name]" } },
+  {
+    name: "reasoning",
+    description: "Set reasoning level or visibility",
+    input: { hint: "[level]" },
+  },
+  { name: "verbose", description: "Cycle verbose output modes" },
+  { name: "voice", description: "Toggle voice mode", input: { hint: "[on|off|tts]" } },
+  { name: "yolo", description: "Toggle approval bypass" },
+  { name: "skin", description: "Change the CLI theme", input: { hint: "[name]" } },
+  { name: "statusbar", description: "Toggle CLI status bar" },
+  { name: "tools", description: "Manage tools" },
+  { name: "toolsets", description: "List toolsets" },
+  { name: "skills", description: "Search or install skills" },
+  { name: "skill", description: "Load a skill into this session", input: { hint: "<name>" } },
+  { name: "cron", description: "Manage cron jobs" },
+  { name: "reload-mcp", description: "Reload MCP servers" },
+  { name: "plugins", description: "List plugins" },
+  { name: "approve", description: "Approve a pending gateway command" },
+  { name: "deny", description: "Deny a pending gateway command" },
+  { name: "restart", description: "Restart gateway" },
+  { name: "sethome", description: "Set current chat as home channel" },
+  { name: "update", description: "Update Hermes to latest" },
+  { name: "platforms", description: "Show platform connection status" },
+  { name: "gateway", description: "Alias for /platforms" },
+  { name: "branch", description: "Branch the current session" },
+  { name: "fork", description: "Alias for /branch" },
+  { name: "fast", description: "Toggle priority processing" },
+  { name: "browser", description: "Open CDP browser connection" },
+  { name: "history", description: "Show conversation history" },
+  { name: "save", description: "Save conversation to file" },
+  { name: "paste", description: "Attach clipboard image" },
+  { name: "image", description: "Attach a local image file" },
   { name: "help", description: "Show Hermes help" },
-  { name: "tools", description: "List available Hermes tools" },
-  { name: "skills", description: "List installed Hermes skills" },
-  { name: "skill", description: "Run a Hermes skill", input: { hint: "<name>" } },
+  { name: "commands", description: "Browse all commands", input: { hint: "[page]" } },
+  { name: "usage", description: "Show token usage" },
+  { name: "insights", description: "Show usage analytics", input: { hint: "[days]" } },
+  { name: "status", description: "Show session info" },
+  { name: "profile", description: "Show active profile info" },
+  { name: "quit", description: "Exit CLI" },
+  { name: "exit", description: "Alias for /quit" },
+  { name: "q", description: "Alias for /quit" },
 ];
 
 function fallbackHermesModel(): ServerProviderModel {
@@ -80,6 +135,10 @@ const makeHermesProviderSnapshot = Effect.fn("makeHermesProviderSnapshot")(funct
     try: () => client.health(),
     catch: (cause) => new HermesProviderProbeError({ cause }),
   }).pipe(Effect.orElseSucceed(() => "unreachable" as const));
+  const skills = yield* Effect.tryPromise({
+    try: () => listHermesProviderSkills(),
+    catch: (cause) => new HermesProviderProbeError({ cause }),
+  }).pipe(Effect.orElseSucceed(() => []));
 
   if (health === "unreachable") {
     return buildServerProvider({
@@ -88,6 +147,7 @@ const makeHermesProviderSnapshot = Effect.fn("makeHermesProviderSnapshot")(funct
       checkedAt,
       models: [fallbackHermesModel()],
       slashCommands: HERMES_SLASH_COMMANDS,
+      skills,
       capabilities: defaultProviderCapabilities("hermes"),
       probe: {
         installed: false,
@@ -117,6 +177,7 @@ const makeHermesProviderSnapshot = Effect.fn("makeHermesProviderSnapshot")(funct
       checkedAt,
       models: [fallbackHermesModel()],
       slashCommands: HERMES_SLASH_COMMANDS,
+      skills,
       capabilities: defaultProviderCapabilities("hermes"),
       probe: {
         installed: true,
@@ -134,6 +195,7 @@ const makeHermesProviderSnapshot = Effect.fn("makeHermesProviderSnapshot")(funct
     checkedAt,
     models: parseHermesModels(modelResponse.success.body),
     slashCommands: HERMES_SLASH_COMMANDS,
+    skills,
     capabilities: defaultProviderCapabilities("hermes"),
     probe: {
       installed: true,

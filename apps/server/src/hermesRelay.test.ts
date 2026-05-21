@@ -317,7 +317,9 @@ describe("Hermes relay", () => {
   });
 
   it("does not report SSE interruption when the downstream client cancels the stream", async () => {
-    const server = startTestRelay(async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const server = startTestRelay(async (_url, init) => {
+      upstreamSignal = init?.signal ?? undefined;
       return new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -353,6 +355,7 @@ describe("Hermes relay", () => {
     await reader.read().catch(() => undefined);
 
     await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(upstreamSignal?.aborted).toBe(true);
     ws.close();
     expect(messages).not.toContainEqual({
       type: "hermes.sse.interrupted",

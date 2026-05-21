@@ -17,12 +17,26 @@ type HermesSessionState = ProviderSession & {
   readonly client: HermesClient;
   readonly conversationId?: string;
   readonly responseId?: string;
+  readonly activeTurn?:
+    | {
+        readonly turnId: TurnId;
+        readonly itemId: RuntimeItemId;
+        readonly abortController: AbortController;
+      }
+    | undefined;
 };
 
 const now = () => new Date().toISOString();
 const eventId = () => EventId.make(`evt_${crypto.randomUUID()}`);
 const turnId = () => TurnId.make(`turn_${crypto.randomUUID()}`);
 const itemId = () => RuntimeItemId.make(`item_${crypto.randomUUID()}`);
+
+function clientFromGateway(gateway: { readonly gatewayUrl: string; readonly apiKey?: string }) {
+  return new HermesClient({
+    gatewayUrl: gateway.gatewayUrl,
+    ...(gateway.apiKey ? { apiKey: gateway.apiKey } : {}),
+  });
+}
 
 function requestError(method: string, cause: unknown) {
   return new ProviderAdapterRequestError({
@@ -35,6 +49,16 @@ function requestError(method: string, cause: unknown) {
 
 function readPrompt(input: string | undefined): string {
   return input?.trim() || "Continue.";
+}
+
+function isAbortCause(cause: unknown): boolean {
+  if (!cause) return false;
+  if (cause instanceof DOMException && cause.name === "AbortError") return true;
+  if (cause instanceof Error) {
+    if (cause.name === "AbortError") return true;
+    if (isAbortCause(cause.cause)) return true;
+  }
+  return false;
 }
 
 function extractTextDelta(event: { event: string | undefined; data: unknown }): string {
@@ -89,6 +113,44 @@ export const makeHermesAdapter = Effect.gen(function* () {
       return next;
     });
 
+  const publishInterruptedTurn = (threadId: ThreadId, session: HermesSessionState) =>
+    Effect.gen(function* () {
+      const activeTurn = session.activeTurn;
+      activeTurn?.abortController.abort();
+      yield* updateSession(threadId, (current) => ({
+        ...current,
+        status: "ready",
+        activeTurnId: undefined,
+        activeTurn: undefined,
+        updatedAt: now(),
+      }));
+      if (!activeTurn) return;
+      yield* publish({
+        eventId: eventId(),
+        provider: "hermes",
+        threadId,
+        turnId: activeTurn.turnId,
+        itemId: activeTurn.itemId,
+        createdAt: now(),
+        type: "item.completed",
+        payload: {
+          itemType: "assistant_message",
+          status: "completed",
+          title: "Hermes",
+          detail: "Hermes turn interrupted by user.",
+        },
+      });
+      yield* publish({
+        eventId: eventId(),
+        provider: "hermes",
+        threadId,
+        turnId: activeTurn.turnId,
+        createdAt: now(),
+        type: "turn.completed",
+        payload: { state: "interrupted", stopReason: "Hermes turn interrupted by user." },
+      });
+    });
+
   const adapter: ProviderAdapterShape<
     ProviderAdapterRequestError | ProviderAdapterSessionNotFoundError
   > = {
@@ -104,10 +166,7 @@ export const makeHermesAdapter = Effect.gen(function* () {
             cwd: resolvedCwd,
           })
           .pipe(Effect.mapError((cause) => requestError("gateway.acquire", cause)));
-        const client = new HermesClient({
-          gatewayUrl: gateway.gatewayUrl,
-          ...(gateway.apiKey ? { apiKey: gateway.apiKey } : {}),
-        });
+        const client = clientFromGateway(gateway);
         const session: HermesSessionState = {
           provider: "hermes",
           status: "ready",
@@ -141,12 +200,26 @@ export const makeHermesAdapter = Effect.gen(function* () {
             threadId: input.threadId,
           });
         }
+        const gateway = yield* gatewayManager
+          .acquire({
+            threadId: input.threadId,
+            cwd: session.cwd ?? process.cwd(),
+          })
+          .pipe(Effect.mapError((cause) => requestError("gateway.acquire", cause)));
+        const client = clientFromGateway(gateway);
         const activeTurnId = turnId();
         const assistantItemId = itemId();
+        const abortController = new AbortController();
         yield* updateSession(input.threadId, (current) => ({
           ...current,
+          client,
           status: "running",
           activeTurnId,
+          activeTurn: {
+            turnId: activeTurnId,
+            itemId: assistantItemId,
+            abortController,
+          },
           updatedAt: now(),
         }));
         yield* publish({
@@ -171,26 +244,38 @@ export const makeHermesAdapter = Effect.gen(function* () {
           payload: { itemType: "assistant_message", status: "inProgress", title: "Hermes" },
         });
 
-        const markTurnFailed = (error: ProviderAdapterRequestError) =>
+        const markTurnEnded = (
+          state: "failed" | "interrupted",
+          detail: string,
+          options?: { readonly publishRuntimeError?: boolean },
+        ) =>
           Effect.gen(function* () {
-            const message = error.detail || error.message;
+            const shouldPublish = yield* Ref.get(sessions).pipe(
+              Effect.map(
+                (current) => current.get(input.threadId)?.activeTurn?.turnId === activeTurnId,
+              ),
+            );
+            if (!shouldPublish) return;
             yield* updateSession(input.threadId, (current) => ({
               ...current,
               status: "ready",
               activeTurnId: undefined,
-              lastError: message,
+              activeTurn: undefined,
+              ...(state === "failed" ? { lastError: detail } : {}),
               updatedAt: now(),
             }));
-            yield* publish({
-              eventId: eventId(),
-              provider: "hermes",
-              threadId: input.threadId,
-              turnId: activeTurnId,
-              itemId: assistantItemId,
-              createdAt: now(),
-              type: "runtime.error",
-              payload: { message, class: "provider_error" },
-            });
+            if (options?.publishRuntimeError) {
+              yield* publish({
+                eventId: eventId(),
+                provider: "hermes",
+                threadId: input.threadId,
+                turnId: activeTurnId,
+                itemId: assistantItemId,
+                createdAt: now(),
+                type: "runtime.error",
+                payload: { message: detail, class: "provider_error" },
+              });
+            }
             yield* publish({
               eventId: eventId(),
               provider: "hermes",
@@ -201,9 +286,9 @@ export const makeHermesAdapter = Effect.gen(function* () {
               type: "item.completed",
               payload: {
                 itemType: "assistant_message",
-                status: "failed",
+                status: state === "failed" ? "failed" : "completed",
                 title: "Hermes",
-                detail: message,
+                detail,
               },
             });
             yield* publish({
@@ -213,15 +298,25 @@ export const makeHermesAdapter = Effect.gen(function* () {
               turnId: activeTurnId,
               createdAt: now(),
               type: "turn.completed",
-              payload: { state: "failed", errorMessage: message },
+              payload:
+                state === "failed"
+                  ? { state, errorMessage: detail }
+                  : { state, stopReason: detail },
             });
           });
 
-        yield* Effect.tryPromise({
+        const markTurnFailed = (error: ProviderAdapterRequestError) =>
+          markTurnEnded("failed", error.detail || error.message, { publishRuntimeError: true });
+
+        const markTurnInterrupted = () =>
+          markTurnEnded("interrupted", "Hermes turn interrupted by user.");
+
+        const runTurn = Effect.tryPromise({
           try: async () => {
-            const response = await session.client.proxy("/v1/responses", {
+            const response = await client.proxy("/v1/responses", {
               method: "POST",
               headers: { "content-type": "application/json" },
+              signal: abortController.signal,
               body: JSON.stringify({
                 input: readPrompt(input.input),
                 stream: true,
@@ -231,12 +326,22 @@ export const makeHermesAdapter = Effect.gen(function* () {
               }),
             });
             if (!response.ok) throw new Error(await response.text());
-            return await response.text();
+            const body = await response.text();
+            if (abortController.signal.aborted) {
+              throw new DOMException("Hermes turn interrupted by user.", "AbortError");
+            }
+            return body;
           },
           catch: (cause) => requestError("responses.create", cause),
         }).pipe(
           Effect.flatMap((body) =>
             Effect.gen(function* () {
+              const shouldContinue = yield* Ref.get(sessions).pipe(
+                Effect.map(
+                  (current) => current.get(input.threadId)?.activeTurn?.turnId === activeTurnId,
+                ),
+              );
+              if (!shouldContinue) return;
               const parsed = parseSseEvents(body.endsWith("\n\n") ? body : `${body}\n\n`);
               let responseId: string | undefined;
               let conversationId: string | undefined;
@@ -263,6 +368,7 @@ export const makeHermesAdapter = Effect.gen(function* () {
                 ...current,
                 status: "ready",
                 activeTurnId: undefined,
+                activeTurn: undefined,
                 ...(responseId ? { responseId } : {}),
                 ...(conversationId ? { conversationId } : {}),
                 updatedAt: now(),
@@ -288,32 +394,87 @@ export const makeHermesAdapter = Effect.gen(function* () {
               });
             }),
           ),
-          Effect.catch((error) => markTurnFailed(error).pipe(Effect.andThen(Effect.fail(error)))),
+          Effect.catch((error) =>
+            isAbortCause(error.cause)
+              ? markTurnInterrupted()
+              : markTurnFailed(error).pipe(Effect.andThen(Effect.fail(error))),
+          ),
         );
+
+        yield* Effect.sync(() => {
+          Effect.runFork(
+            runTurn.pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Hermes turn failed after start", {
+                  threadId: input.threadId,
+                  cause: String(cause),
+                }),
+              ),
+            ),
+          );
+        });
 
         return { threadId: input.threadId, turnId: activeTurnId };
       }),
     interruptTurn: (threadId) =>
-      updateSession(threadId, (session) => ({
-        ...session,
-        status: "ready",
-        activeTurnId: undefined,
-      })),
+      Effect.gen(function* () {
+        const session = yield* Ref.get(sessions).pipe(
+          Effect.map((current) => current.get(threadId)),
+        );
+        if (!session) {
+          yield* gatewayManager.release(threadId);
+          return;
+        }
+        session.activeTurn?.abortController.abort();
+        if (session.cwd) {
+          const affectedThreadIds = yield* gatewayManager.hardKill(session.cwd);
+          const latestSessions = yield* Ref.get(sessions);
+          const targetThreadIds = affectedThreadIds.length > 0 ? affectedThreadIds : [threadId];
+          yield* Effect.forEach(
+            targetThreadIds,
+            (affectedThreadId) => {
+              const affectedSession = latestSessions.get(affectedThreadId);
+              return affectedSession
+                ? publishInterruptedTurn(affectedThreadId, affectedSession)
+                : Effect.void;
+            },
+            { discard: true },
+          );
+          return;
+        }
+        yield* publishInterruptedTurn(threadId, session);
+        yield* gatewayManager.release(threadId);
+      }),
     respondToRequest: () => Effect.void,
     respondToUserInput: () => Effect.void,
     stopSession: (threadId) =>
-      Ref.update(sessions, (current) => {
-        const next = new Map(current);
-        next.delete(threadId);
-        return next;
-      }).pipe(Effect.andThen(gatewayManager.release(threadId))),
+      Effect.gen(function* () {
+        const session = yield* Ref.get(sessions).pipe(
+          Effect.map((current) => current.get(threadId)),
+        );
+        session?.activeTurn?.abortController.abort();
+        yield* Ref.update(sessions, (current) => {
+          const next = new Map(current);
+          next.delete(threadId);
+          return next;
+        });
+        yield* gatewayManager.release(threadId);
+      }),
     listSessions: () =>
       Ref.get(sessions).pipe(Effect.map((current) => Array.from(current.values()))),
     hasSession: (threadId) =>
       Ref.get(sessions).pipe(Effect.map((current) => current.has(threadId))),
     readThread: (threadId) => Effect.succeed({ threadId, turns: [] }),
     rollbackThread: (threadId) => Effect.succeed({ threadId, turns: [] }),
-    stopAll: () => Ref.set(sessions, new Map()).pipe(Effect.andThen(gatewayManager.stopAll)),
+    stopAll: () =>
+      Effect.gen(function* () {
+        const activeSessions = yield* Ref.get(sessions);
+        for (const session of activeSessions.values()) {
+          session.activeTurn?.abortController.abort();
+        }
+        yield* Ref.set(sessions, new Map());
+        yield* gatewayManager.stopAll;
+      }),
     streamEvents: Stream.fromPubSub(events),
   };
 
